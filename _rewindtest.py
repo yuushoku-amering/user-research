@@ -32,10 +32,13 @@ LOG = []
 
 # 项目从哪来：
 #   1. 命令行给了就用它（python _rewindtest.py <项目目录>）
-#   2. 否则用**自带素材**临时拼一个（`_fixtures/分析样例/clean_data.csv`）
+#   2. 否则用**现场造的素材**临时拼一个（`_fixtures.py` 的「分析样例」）
 # 原来写死成某个真实案例项目的绝对路径 —— 别人 clone 下来直接跑不起来，
 # 而且那个项目一旦被删，测试就永久红了。测试要能在任何机器上自己活下去。
-FIXTURE = os.path.join(HERE, "_fixtures", "分析样例", "clean_data.csv")
+sys.path.insert(0, HERE)
+from _fixtures import fixture_dir as _fixture_dir       # noqa: E402
+
+FIXTURE = os.path.join(_fixture_dir("分析样例"), "clean_data.csv")
 
 
 def _cur_project_root():
