@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用户研究工作台</title>
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="fish">🐟</span> 用户研究工作台</div>
+
+  <div class="proj">
+    <label>项目</label>
+    <select id="projSel"></select>
+    <button class="ghost" id="btnNewProj" title="在 projects/ 下新建一个研究项目">＋ 新建</button>
+    <button class="ghost" id="btnOpenProj" title="打开任意已存在的目录">打开…</button>
+    <button class="ghost" id="btnSaveProj" title="把整个项目存成一个文件，放到你指定的文件夹">💾 保存</button>
+    <button class="ghost" id="btnImportProj" title="选一个项目快照文件，还原现场">导入…</button>
+    <button class="ghost danger2" id="btnDelProj" title="删除当前选中的项目（不可恢复，会让你把项目名打一遍）">🗑 删除</button>
+    <input type="file" id="fileImport" accept=".urwproj,.zip" style="display:none">
+  </div>
+
+  <div class="env" id="env"></div>
+</header>
+
+<div class="layout">
+  <aside class="rail">
+    <div class="rail-title">流程</div>
+    <nav id="railList"></nav>
+    <div class="rail-foot" id="railFoot"></div>
+  </aside>
+
+  <main class="stage" id="stage"></main>
+</div>
+
+<footer class="statusbar">
+  <span id="statusText">就绪</span>
+  <span class="grow"></span>
+  <span id="statusJob"></span>
+</footer>
+
+<div class="modal" id="modal">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<aside class="drawer" id="drawer">
+  <div class="drawer-box" id="drawerBox"></div>
+</aside>
+
+<script src="/web/app.js"></script>
+</body>
+</html>
