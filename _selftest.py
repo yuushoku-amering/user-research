@@ -22,10 +22,17 @@ from core import paths          # noqa: E402
 # ⚠ 控制台是 GBK：打印 emoji / 特殊符号会 UnicodeEncodeError 把测试打断。
 #   这一句是**必须**的（踩过两次）。
 try:
-    sys.stdout.reconfigure(encoding=utf-8, errors=replace)
-    sys.stderr.reconfigure(encoding=utf-8, errors=replace)
-except Exception:
-    pass
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except AttributeError:
+    # 理论上到不了这里：项目要求 Python 3.7+，那时 reconfigure 一定存在。
+    # 真到了这里说明 Python 太老 —— UTF-8 保护**没生效**，必须让人知道，
+    # 不能"静静跳过"（那等于假装有保护）。
+    print("[warn] Python too old: sys.stdout.reconfigure missing, "
+          "the UTF-8 guard did NOT take effect (needs Python 3.7+)")
+except Exception as _e:
+    # 别的失败是 bug（比如编码名写错），要叫出来，不许静默
+    print("[warn] stdout/stderr UTF-8 guard failed: %r" % (_e,))
 
 
 def _pick_project():
