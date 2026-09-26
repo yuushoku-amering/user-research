@@ -31,7 +31,7 @@ BLOCK = sys.argv[1] if len(sys.argv) > 1 else "b0_brief"
 
 
 def _pick_project():
-    """靶子项目：命令行给的 > 旁边的案例项目 > 用自带素材临时拼一个。
+    """靶子项目：命令行给的 > 旁边的案例项目 > 用**现场造**的素材临时拼一个。
 
     原来写死成某个真实案例项目的绝对路径 —— 别人 clone 下来没有那个项目，
     跑起来只会报「目录不存在」，而真正被测的（模型通道）根本还没轮到。
@@ -43,7 +43,10 @@ def _pick_project():
         return real
     tmp = os.path.join(HERE, "_jobs", "tmp_llm_proj")
     os.makedirs(os.path.join(tmp, "samples"), exist_ok=True)
-    src = os.path.join(HERE, "_fixtures")
+    sys.path.insert(0, HERE)
+    from _fixtures import build_all
+    build_all()
+    src = os.path.join(HERE, "_jobs", "fixtures")
     for name in ("研究员口述需求.txt", "research_brief.md",
                  "访谈转写稿_小周.txt", "访谈转写稿_小林.txt"):
         f = os.path.join(src, name)

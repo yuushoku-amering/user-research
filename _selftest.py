@@ -33,18 +33,17 @@ def _pick_project():
 
     理想情况用的是工作台旁边那个演示项目（`data/sim_survey.csv` + `samples/情景_…`），
     但它不在版本库里 —— 别人 clone 下来是没有的。所以：旁边的演示项目在就用它，
-    不在就用**自带素材**（`_fixtures/情景_游戏DAU/`）临时拼一个。
+    不在就用**现场造出来的素材**（`_fixtures.py`，见那里的说明）临时拼一个。
 
-    ⚠ 拼的是临时项目，不是直接拿 `_fixtures` 当项目跑：好几条用例会**写产物**
-      （⑤ 生成 output/clean_data.csv、② 重写编码工作表），落到素材目录会把仓库弄脏。
+    ⚠ 拼的是临时项目，不是拿素材目录直接当项目跑：好几条用例会**写产物**
+      （⑤ 生成 output/clean_data.csv、② 重写编码工作表）。
     """
     outer = os.path.dirname(HERE)
     if os.path.exists(os.path.join(outer, "data", "sim_survey.csv")):
         return outer
 
-    src = os.path.join(HERE, "_fixtures", "情景_游戏DAU")
-    if not os.path.isdir(src):
-        raise SystemExit("找不到演示项目，也找不到自带素材 %s —— 自检跑不起来（素材不该缺）" % src)
+    from _fixtures import fixture_dir
+    src = fixture_dir("情景_游戏DAU")
     dst = os.path.join(HERE, "_jobs", "tmp_selftest_proj")
     if os.path.isdir(dst):
         shutil.rmtree(dst, ignore_errors=True)
@@ -57,11 +56,11 @@ PROJ = _pick_project()
 JOBS = os.path.join(HERE, "_jobs")
 
 # ⚠ 最后一条用例要**先把素材拷进临时目录**再跑：②b 的产物写在编码表旁边那一层，
-#   直接拿 `_fixtures` 当项目跑，产物会落进素材目录、把仓库弄脏。
-_SINGLE_SRC = os.path.join(HERE, "_fixtures", "访谈样例")
+#   拿素材目录直接当项目跑会把产物写进去。
 _SINGLE = os.path.join(JOBS, "tmp_selftest_单人份")
-if os.path.isdir(_SINGLE_SRC) and not os.path.isdir(_SINGLE):
-    shutil.copytree(_SINGLE_SRC, _SINGLE, dirs_exist_ok=True)
+if not os.path.isdir(_SINGLE):
+    from _fixtures import fixture_dir as _fdir
+    shutil.copytree(_fdir("访谈样例"), _SINGLE, dirs_exist_ok=True)
 
 CASES = [
     ("b3_survey", "问卷统计（全勾）", {
@@ -133,7 +132,7 @@ CASES = [
         "extra_rules": "星海科技有限公司 = 某科技公司",
     }),
     ("b2b_codesum", "编码汇总（范畴 → 主题，用自带的那份已填编码表）", {
-        # 素材在版本库里（`_fixtures/访谈样例/`）：一人份、已填好码的编码工作表。
+        # 素材现场造（`_fixtures.py` 的「访谈样例」）：一人份、已填好码的编码工作表。
         # 原来用某个真实案例项目的 output/编码工作表.csv —— 那个项目不在库里，
         # 别人 clone 下来这一条必然红，而且红的理由跟被测代码无关。
         "__project__": _SINGLE,

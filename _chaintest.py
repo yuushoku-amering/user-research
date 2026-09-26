@@ -22,17 +22,21 @@ import subprocess
 import sys
 import tempfile
 
-HERE = r"F:\try\用户研究\workbench"
+HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-from core import paths
+from core import paths                                  # noqa: E402
 
 TMP = os.path.join(tempfile.gettempdir(), "urw_chain")
-# ⚠ 素材改成**工作台自带**（`workbench/_fixtures/`），原来是从某个"走查项目"里拷的。
-#   踩过：那个项目被研究员删了（删对了 —— 他就是在试「删除=移进回收站」），
-#   于是**整套回归跑不起来**：`FileNotFoundError: ..._走查_大学生恋爱研究\samples\...`。
-#   教训：**测试不能依赖别人的项目/临时目录**，它得能在任何机器上独立跑。
-SRC = os.path.join(HERE, "_fixtures")
+# ⚠ 素材是**现场造**的（`_fixtures.py`），不是仓库里的文件。
+#   两代踩坑史：
+#     · 最早从某个"走查项目"里拷 → 那个项目被删了，整套回归当场跑不起来
+#     · 后来改成提交进仓库的 `_fixtures/` 文件 → 能跑了，但那份素材里
+#       **故意带真名和手机号**（🔒 那棒要拿它当靶子），摆在一个公开仓库里不合适
+#   现在：仓库里只留"怎么造"，素材本体一个字节都不进库（见 .gitignore）。
+from _fixtures import build_all as _build_fixtures      # noqa: E402
+
+SRC = _build_fixtures()
 PASS, FAIL = [], []
 
 
@@ -83,7 +87,7 @@ def main():
     for d in ("samples", "output", "contracts", "data"):
         os.makedirs(os.path.join(proj, d), exist_ok=True)
     # 把两份真实转写稿拷进来（它们带着真名和手机号，正好检验 🔒 这一棒）
-    # 素材现在在工作台自己的 `_fixtures/` 里（见 SRC 那段注释）
+    # 素材是 `_fixtures.py` 现造的（`SRC` 就是它返回的目录）
     missing = [fn for fn in ("访谈转写稿_小周.txt", "访谈转写稿_小林.txt")
                if not os.path.exists(os.path.join(SRC, fn))]
     if missing:

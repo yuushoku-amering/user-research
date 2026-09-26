@@ -30,7 +30,7 @@ def _pick_project():
     """要一个**存在**的项目当靶子（模型只拿它的路径，不读它的内容）。
 
     原来写死成某个真实案例项目的绝对路径 —— 别人 clone 下来没有那个项目，
-    这一段会莫名其妙地失败。现在：命令行给 > 案例项目在 > 用自带素材临时拼一个。
+    这一段会莫名其妙地失败。现在：命令行给 > 案例项目在 > 用现场造的素材拼一个。
     """
     if len(sys.argv) > 1 and os.path.isdir(sys.argv[1]):
         return os.path.abspath(sys.argv[1])
@@ -38,8 +38,11 @@ def _pick_project():
     if os.path.isdir(real):
         return real
     tmp = os.path.join(HERE, "_jobs", "tmp_llmfill_proj")
-    src = os.path.join(HERE, "_fixtures")
     os.makedirs(os.path.join(tmp, "samples"), exist_ok=True)
+    sys.path.insert(0, HERE)
+    from _fixtures import build_all
+    build_all()
+    src = os.path.join(HERE, "_jobs", "fixtures")
     for name in ("research_brief.md",
                  "访谈转写稿_小周.txt", "访谈转写稿_小林.txt"):
         f = os.path.join(src, name)

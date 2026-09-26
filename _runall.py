@@ -168,6 +168,19 @@ def main():
         print("  （多半是上一次测试留下的现场；跑完我会用「最近项目」找回来）")
     elif saved:
         print("现场已记下：%s" % saved)
+
+    # ---------- 先把测试素材造出来 ----------
+    # 素材**不进版本库**（见 `.gitignore` 里 `_fixtures/` 那一段），
+    # 定义在 `_fixtures.py`，跑测试时现造到 `_jobs/fixtures/`。
+    # 放在最前面造一次，后面各套就不用各自判断了。
+    try:
+        import importlib
+        fx = importlib.import_module("_fixtures")
+        root = fx.build_all()
+        print("测试素材已生成：%s" % root)
+    except Exception as e:
+        print("⚠ 测试素材生成失败：%s" % e)
+        print("  （几套依赖素材的会报「找不到素材」，其余照跑）")
     print("")
 
     results = []

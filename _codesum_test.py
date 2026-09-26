@@ -23,13 +23,14 @@ from core import paths          # noqa: E402
 
 JOBS = os.path.join(HERE, "_jobs")
 # B / D 两段原来跑在**某个真实项目**上（`..\projects\小鹰扫描_付费转化研究`）。
-# 2026-09-27 改：那个项目在本机之外根本不存在 —— 别人 clone 下来一跑就红，
-# 而红的理由跟被测代码毫无关系。素材改成工作台自带（`_fixtures\访谈样例\`），
-# 内容一字不差（就是从那两份产物直接拷的：一人份编码工作表 + 已脱敏转写稿）。
-DEMO = os.path.join(HERE, "_fixtures", "访谈样例")
+# 2026-09-27 改：素材改成**现场造**（`_fixtures.py`）—— 仓库里不放素材本体，
+# 因为那两份里**故意带手机号和真名**（②b/② 那几棒拿它们当靶子），
+# 一份公开仓库里躺着"看着像真访谈记录"的文件不合适，哪怕是编的。
+sys.path.insert(0, HERE)
+from _fixtures import fixture_dir as _fixture_dir       # noqa: E402
+
+DEMO = _fixture_dir("访谈样例")
 DEMO_OK = os.path.isdir(DEMO)
-if not DEMO_OK:
-    sys.exit("找不到自带素材 %s —— B / D 两段跑不了（素材不该缺，缺了就是仓库不完整）" % DEMO)
 TMP = os.path.join(JOBS, "tmp_codesum")
 
 HEAD = ["#", "说话人", "字数", "原文", "关键词（线索）", "开放编码", "范畴", "主题", "可作引语"]
@@ -182,10 +183,10 @@ def main():
     ok(os.path.exists(os.path.join(proj, "contracts", "coded_transcript.md")),
        "A 回填了契约文件 coded_transcript.md")
 
-    # ---------------- B：单人份（素材自带，见 _fixtures/访谈样例） ----------------
+    # ---------------- B：单人份（素材现场造，见 _fixtures.py 的「访谈样例」） ----------------
     # ⚠ 要先把素材**拷进临时项目**再跑：②b 的产物是写在编码表旁边那一层的，
-    #   直接拿 _fixtures 当项目跑，产物就会落在素材目录里、把仓库弄脏。
-    ok(DEMO_OK, "B/D 用到的单人份素材在 _fixtures/访谈样例/ 里")
+    #   拿素材目录直接当项目跑，产物就会落在素材目录里。
+    ok(DEMO_OK, "B/D 用到的单人份素材造出来了")
     projB = os.path.join(TMP, "proj1")
     shutil.copy2(os.path.join(DEMO, "编码工作表_单人份.csv"),
                  _ensure(os.path.join(projB, "output"), "编码工作表.csv"))
@@ -338,9 +339,9 @@ def main():
     import pandas as pd
     ws = pd.read_csv(os.path.join(projD, "output", "编码工作表.csv"), encoding="utf-8-sig")
     speakers = set(ws["说话人"].astype(str))
-    ok("[姓名1]" in speakers, "D 认出了括号占位名当说话人", sorted(speakers))
+    ok("[受访者1]" in speakers, "D 认出了括号占位名当说话人", sorted(speakers))
     ok(len(ws) >= 35, "D 段数没被吞（工作表里 %d 行）" % len(ws), len(ws))
-    ok("林晓" in speakers, "D 访谈者也认出来了", sorted(speakers))
+    ok("研究员" in speakers, "D 访谈者也认出来了", sorted(speakers))
 
     # ---------------- 收尾 ----------------
     # ------------------------------------------------------------------ #
