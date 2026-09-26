@@ -210,6 +210,94 @@ def main():
     except Exception as e:
         ok(False, "生成语法的自检能跑通", e)
 
+    # ------------------------------------------------------------------ #
+    #  找 SPSS：**别人机器上装在别处，也要能找到**
+    # ------------------------------------------------------------------ #
+    print("")
+    print("【找 SPSS 可执行文件】")
+    try:
+        import shutil as _sh
+        import tempfile
+
+        from core import spss as SP
+
+        td = tempfile.mkdtemp(prefix="urw_spss_find_")
+
+        # --- 1) config 里写对了，文件也在 → 直接用 ---
+        mine = os.path.join(td, "stats.exe")
+        open(mine, "w").close()
+        ok(SP.find_exe({"spss_exe": mine}) == mine,
+           "config 里写对了就直接用它")
+
+        # --- 2) config 空着/写错 → 去常见位置找 ---
+        # ⚠ 这是**别人机器的核心场景**：他刚 clone 下来，spss_exe 是空的。
+        #   原来这里返回空，然后只报一句「config.json 里的 spss_exe 指向的文件不存在」——
+        #   而对方根本不知道要改、更不知道改成什么。
+        fake_root = os.path.join(td, "Program Files", "IBM", "SPSS", "Statistics", "27")
+        os.makedirs(fake_root)
+        fake = os.path.join(fake_root, "stats.exe")
+        open(fake, "w").close()
+
+        saved = SP._spss_roots
+        try:
+            SP._spss_roots = lambda: [fake_root]
+            ok(SP.find_exe({"spss_exe": ""}) == fake,
+               "spss_exe 留空 → 去常见位置找到了", SP.find_exe({"spss_exe": ""}))
+            ok(SP.find_exe({"spss_exe": r"D:\不存在的\stats.exe"}) == fake,
+               "spss_exe 写错了 → 仍然能靠探测救回来")
+            SP._spss_roots = lambda: []
+            ok(SP.find_exe({"spss_exe": ""}) == "",
+               "到处都没有 → 老实返回空（不编一个假路径出来）")
+        finally:
+            SP._spss_roots = saved
+
+        # --- 3) 装了多个版本 → 新版优先 ---
+        multi = os.path.join(td, "Statistics")
+        for v in ("24", "26", "29"):
+            d = os.path.join(multi, v)
+            os.makedirs(d)
+            open(os.path.join(d, "stats.exe"), "w").close()
+
+        # --- 4) 探测**绝不许启动任何进程**（这是硬规矩）---
+        # SPSS 遇到不认识的开关会弹模态框等人点确定，进程一直活着；
+        # "自动探测"一旦真的去跑 SPSS，就会变成"你关掉一个它又开一个"（真踩过）。
+        # 查文件存不存在没有这个副作用 —— 所以这一层才敢做自动化。
+        import subprocess as _sp
+        _orig_run, _orig_popen = _sp.run, _sp.Popen
+        calls = []
+
+        def _boom(*a, **k):
+            calls.append(a)
+            raise AssertionError("探测阶段不许启动任何进程！")
+
+        _sp.run, _sp.Popen = _boom, _boom
+        try:
+            SP.find_exe({"spss_exe": ""})
+            SP._spss_roots()
+        finally:
+            _sp.run, _sp.Popen = _orig_run, _orig_popen
+        ok(not calls, "探测只查文件系统，没有启动任何进程", calls[:2])
+
+        # --- 5) 找不到时给的话，得能照着做 ---
+        msg = SP.explain_not_found({"spss_exe": r"D:\NoSuchPlace\stats.exe"})
+        ok("不用 SPSS" in msg, "告诉了人「不用 SPSS 也行」（最容易被忘的一条）")
+        ok("不影响" in msg, "说清了不影响分析结果")
+        ok("config.json" in msg, "指出要改哪个文件")
+        ok("打开文件所在位置" in msg, "给了**怎么找到那个路径**的具体步骤")
+        ok(r"D:\NoSuchPlace\stats.exe" in msg, "把现在写的是什么也复述出来")
+
+        # --- 6) 默认配置里不许有"只有本机才成立"的路径 ---
+        # `paths.DEFAULT_CONFIG` 的 spss_exe 曾经写死成作者的 `D:\SPSS\stats.exe`，
+        # 别人 clone 下来这会被当成"用户配置" → 永远指向不存在的文件。
+        from core import paths as P
+        ok(P.DEFAULT_CONFIG.get("spss_exe") == "",
+           "默认配置里 spss_exe 是空的（留空=自动探测，不给本机路径）",
+           P.DEFAULT_CONFIG.get("spss_exe"))
+
+        _sh.rmtree(td, ignore_errors=True)
+    except Exception as e:
+        ok(False, "找 SPSS 的自检能跑通", e)
+
     print("")
     print("=" * 70)
     print("通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

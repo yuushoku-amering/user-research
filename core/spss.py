@@ -161,10 +161,111 @@ def write_syntax(path, text, cfg=None):
 # 环境
 # --------------------------------------------------------------------------- #
 
+def _spss_roots():
+    """SPSS 可能装在哪 —— **按常见程度排序**，先命中先用。
+
+    ## 为什么需要这个
+
+    `spss_exe` 原来是写死的本机路径（`D:\\SPSS\\stats.exe`）。后果：
+    别人 clone 下来、SPSS 装在别处（或根本没装），工作台**不会去找**，
+    只会报「config.json 里的 spss_exe 指向的文件不存在」——
+    而对方根本不知道要改 config.json，更不知道改成什么。
+
+    ## 为什么是"几十个候选目录"而不是"全盘搜索"
+
+    全盘搜 `stats.exe` 要好几十秒甚至几分钟，用户会以为程序卡死。
+    这里只查**已知的布局**：
+      · IBM 官方安装器的标准位置（Program Files\\IBM\\SPSS\\Statistics\\<版本>）
+      · 常见的自定义位置（有的人就装在 `D:\\SPSS`）
+    每个候选目录都是**浅查**（`*\\stats.exe`），不做递归。
+
+    ⚠ 这里只**看文件存不存在**，绝不启动 SPSS —— 见下面那段"不自动探测"的说明。
+    """
+    import glob
+
+    roots = []
+    # 盘的顺序：系统盘优先，然后 D/E —— 国内不少人把软件装 D 盘
+    drives = ["C:", "D:", "E:", "F:"]
+
+    for drv in drives:
+        # IBM 官方安装器的标准布局：Program Files\IBM\SPSS\Statistics\<版本号>\stats.exe
+        for pf in ("Program Files", "Program Files (x86)"):
+            roots.append(os.path.join("%s\\" % drv, pf, "IBM", "SPSS", "Statistics"))
+            roots.append(os.path.join("%s\\" % drv, pf, "IBM", "SPSS"))
+
+        # 常见的自定义位置（本机就是 D:\SPSS）
+        roots.append(os.path.join("%s\\" % drv, "SPSS"))
+        roots.append(os.path.join("%s\\" % drv, "Program Files", "SPSS"))
+        roots.append(os.path.join("%s\\" % drv, "Program Files (x86)", "SPSS"))
+
+    # 展开所有存在的目录，并把版本号目录排在前（新的版本号更大）
+    out = []
+    for r in roots:
+        if not os.path.isdir(r):
+            continue
+        out.append(r)
+        try:
+            subs = [d for d in os.listdir(r) if os.path.isdir(os.path.join(r, d))]
+        except OSError:
+            continue
+        # 版本目录（25 / 26 / 27…）优先，而且**从新到旧**
+        ver = sorted([d for d in subs if d.strip().isdigit()], key=lambda s: -int(s))
+        rest = sorted(d for d in subs if d not in ver)
+        for d in ver + rest:
+            out.append(os.path.join(r, d))
+    return out
+
+
 def find_exe(cfg=None):
+    """找 SPSS 的 stats.exe。
+
+    顺序：**config.json 里写的**（人明确指定过，最可信）→ 常见安装位置。
+    找不到就返回空串，由调用方给出"怎么办"的提示。
+
+    ⚠ 这里**只查文件存在性，绝不启动 SPSS**。原因见本文件开头那段：
+      SPSS 遇到不认识的开关会弹模态框等人点确定，进程一直活着 ——
+      "自动探测"会变成"你关掉一个它又开一个"（真发生过）。
+      查文件系统不会启动任何进程，所以这一层是安全的。
+    """
     cfg = cfg or paths.load_config()
-    exe = (cfg.get("spss_exe") or "").strip()
-    return exe if exe and os.path.exists(exe) else ""
+
+    # 1) 人明确写过的，优先信它
+    exe = (cfg.get("spss_exe") or "").strip().strip('"')
+    if exe and os.path.isfile(exe):
+        return exe
+
+    # 2) 常见位置探测
+    for root in _spss_roots():
+        cand = os.path.join(root, "stats.exe")
+        if os.path.isfile(cand):
+            return cand
+    return ""
+
+
+def explain_not_found(cfg=None):
+    """找不到 SPSS 时，给人一句"能照着做"的话。
+
+    光说"找不到"等于没说 —— 得告诉他：在哪写、写成什么样、
+    以及**不装 SPSS 也能用**（这条最容易被忘，很多人会以为整个工具废了）。
+    """
+    cfg = cfg or paths.load_config()
+    cur = (cfg.get("spss_exe") or "").strip()
+    lines = ["没找到 SPSS 的可执行文件（stats.exe）。"]
+    if cur:
+        lines.append("config.json 里现在写的是：%s" % cur)
+        lines.append("这个文件不存在。")
+    else:
+        lines.append("config.json 里的 spss_exe 是空的，常见安装位置也都没找到。")
+    lines.append("")
+    lines.append("怎么办（二选一）：")
+    lines.append("· 不用 SPSS：**其余功能完全不受影响**，⑥ 照样会生成 .sps 语法文件，")
+    lines.append("  你可以自己拖进 SPSS 跑。这一条不影响任何分析结果。")
+    lines.append("· 要用：打开工作台目录下的 config.json，把 spss_exe 改成你自己的路径。")
+    lines.append("  怎么找那个路径：右键 SPSS 快捷方式 →「打开文件所在位置」→")
+    lines.append("  看到 stats.exe 后，按住 Shift 右键它 →「复制文件地址」。")
+    lines.append("  填进去大概长这样：\"C:\\\\Program Files\\\\IBM\\\\SPSS\\\\Statistics\\\\27\\\\stats.exe\"")
+    return "\n".join(lines)
+
 
 
 def explain(err):
@@ -312,7 +413,7 @@ def run_production(project_root, sps_rel, out_rel, cfg=None, timeout=420,
     cfg = cfg or paths.load_config()
     exe = find_exe(cfg)
     if not exe:
-        return {"ok": False, "error": "config.json 里的 spss_exe 指向的文件不存在"}
+        return {"ok": False, "error": explain_not_found(cfg)}
     sps_path = os.path.join(project_root, sps_rel)
     out_path = os.path.join(project_root, out_rel)
     if not os.path.exists(sps_path):
@@ -395,7 +496,7 @@ def open_syntax(exe, sps_path, autorun=True, force=False):
     ⚠ `force=False` 时已经有 SPSS 开着就不另开一个 —— 不然每跑一次分析就多一个窗口。
     """
     if not exe or not os.path.exists(exe):
-        return {"ok": False, "error": "没找到 SPSS 可执行文件（看 config.json 的 spss_exe）"}
+        return {"ok": False, "error": explain_not_found(cfg)}
     if not sps_path or not os.path.exists(sps_path):
         return {"ok": False, "error": "找不到语法文件：%s" % sps_path}
     if not force and _stats_pids():
@@ -418,7 +519,7 @@ def launch_gui(exe, sps_path, with_banner=True, force=False):
 def open_in_gui(exe, target, wait=False):
     """把一个文件丢给 SPSS 打开（语法或输出都行）。"""
     if not exe or not os.path.exists(exe):
-        return False, "没找到 SPSS 可执行文件"
+        return False, explain_not_found()
     if not target or not os.path.exists(target):
         return False, "找不到这个文件：%s" % target
     try:
@@ -537,7 +638,7 @@ def _detect_inner(cfg, timeout):
     cfg = cfg or paths.load_config()
     exe = find_exe(cfg)
     if not exe:
-        return {"ok": False, "error": "config.json 里的 spss_exe 指向的文件不存在"}
+        return {"ok": False, "error": explain_not_found(cfg)}
     running = _stats_pids()
     if running:
         return {"ok": False,
@@ -573,7 +674,7 @@ def _detect_inner(cfg, timeout):
                           "· 看一下那个 SPSS 窗口：语法跑完了吗？有没有报错？\n"
                           "· 如果是「未知的开关」那种弹框，说明这台机器的 SPSS 版本不一样。"
                           % timeout) if opened else
-                         "SPSS 没能打开（看 config.json 里的 spss_exe 对不对）。",
+                         "SPSS 没能打开。\n" + explain_not_found(cfg),
                 "tries": [{"args": "-runsyntax（自动运行）", "code": None,
                            "seconds": round(waited, 1), "html": False,
                            "note": "打开了界面" if opened else "没打开"}]}
