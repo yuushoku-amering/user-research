@@ -32,7 +32,14 @@ DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "python": "",                    # 留空 = 自动探测
     "project_root": "",              # 留空 = 还没选项目（界面显示空栏，不拿项目之家凑数）
-    "spss_exe": r"D:\SPSS\stats.exe",
+    # ⚠ spss_exe 留空 = 自动探测常见安装位置（core/spss.py 的 _spss_roots）。
+    #   这里**以前写的是本机路径** `D:\SPSS\stats.exe` —— 后果很实在：
+    #   别人 clone 下来，这份默认值会被当成"用户自己的配置"，
+    #   于是工作台永远指着一个不存在的文件，而对方看到的消息是
+    #   「config.json 里的 spss_exe 指向的文件不存在」——
+    #   他不知道要改、更不知道改成什么。
+    #   默认值里**不许出现只有本机才成立的路径**。
+    "spss_exe": "",
     "llm": {
         "enabled": False,            # 模型建议通道：默认关，界面上一键开
         "mode": "dsh-headless",      # 复用前辈的 DSH 凭据，走独立 DSH_HOME
