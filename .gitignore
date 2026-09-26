@@ -11,6 +11,9 @@ config.local.json
 _jobs/
 # 上传脚本留下的日志（里面有 git 的原话，但也是本机路径）
 push_log.txt
+# 演示项目（`试一下_演示.bat` 每次现造，不用留）
+# —— 它建在 `_jobs/demo_project`，本来就被上面那条挡住；这是双保险
+demo_project/
 # 界面上的「最近项目」流水：里面是你的项目名字
 最近项目.json
 # 模型通道用的独立 DSH_HOME（几百 MB，且含会话记录）
