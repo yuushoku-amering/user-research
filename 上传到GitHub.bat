@@ -192,5 +192,21 @@ echo   A short summary of this run is in push_log.txt
 echo   (network settings + what is currently on the remote)
 echo ================================================================
 echo.
+
+rem  /nopause is used by the "keep the window open" wrapper in this folder.
+rem  That wrapper already holds the window with `cmd /k`, so a second
+rem  "press any key" would just be a confusing extra step.
+rem
+rem  The wrapper's filename is deliberately NOT written here: this file must be
+rem  saved as ASCII for cmd to parse it, and Chinese text saved as ASCII turns
+rem  into "?" -- which already broke the wrapper's own call line once.
+if /i "%~1"=="/nopause" goto :eof
+
+rem  On Windows Terminal this tab closes as soon as the script ends, so pressing
+rem  a key here can look like "it crashed". It did not -- scroll up, the output
+rem  is all there, and push_log.txt has a copy.
+echo   Press any key to close this window.
+echo   (If it closes and you want to read the output again: push_log.txt)
+echo.
 pause
 endlocal
