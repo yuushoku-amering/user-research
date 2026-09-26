@@ -1,0 +1,25 @@
+# 换行符统一
+#
+# 为什么要有这个文件：不加的话，Windows 上 checkout 出来的文件是 CRLF，
+# 而仓库里存的是 LF —— 于是**任何一次改动都会显示成「整个文件都改了」**，
+# 真正改了什么反而看不出来。而且别人在 Mac/Linux 上 clone 会看到满屏改动。
+
+# 默认全部按文本处理，仓库里一律存 LF
+* text=auto eol=lf
+
+# 但 .bat 是例外：Windows 的批处理对 CRLF 有依赖，
+# 换成 LF 之后某些行（尤其是 if / for 块和续行）会行为异常。
+*.bat text eol=crlf
+
+# 二进制：别做换行转换，也别尝试合并
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.xlsx binary
+*.sav binary
+*.zip binary
+
+# 这些也别当文本 diff
+*.docx binary
+*.pdf binary
