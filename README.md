@@ -116,6 +116,10 @@ cd 用户研究工作台
 
 ```
 用户研究工作台/                ← 仓库根 = 软件本体
+├── 启动工作台.bat              双击这个
+├── 重启工作台.bat              改过 server.py / core/* 之后用这个
+├── _find_engine.bat           ★ 找 Python 的逻辑（两个启动脚本共用这一份）
+├── _read_config_python.ps1    从 config.json 里读 "python" 那一项
 ├── server.py                  HTTP 服务（只监听 127.0.0.1，开机不自启、不留守护进程）
 ├── runner.py                  引擎子进程入口：一行一个 JSON 事件回给服务端
 ├── blocks/                    ★ 九个组块｜每个 = block.py（声明）+ engine.py（干活）
