@@ -208,5 +208,19 @@ if exist "%RAW%" type "%RAW%" >>"%LOG%" 2>&1
 del "%RAW%" >nul 2>nul
 
 echo.
-pause
-endlocal
+echo   (If this window keeps vanishing: open a Command Prompt yourself,
+echo    cd to this folder, and run this same file from there -- that window
+echo    will not close.  Or just read push_log.txt.)
+echo.
+
+rem  Optional belt-and-braces: `???GitHub.bat /keep` drops you into a
+rem  shell in this folder instead of closing, for terminals that close their
+rem  tab the moment the script exits (Windows Terminal does this by default).
+if /i "%~1"=="/keep" (
+  echo   Dropping into a shell.  Type EXIT to close it.
+  endlocal
+  cmd /k
+) else (
+  pause
+  endlocal
+)
