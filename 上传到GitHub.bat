@@ -17,12 +17,29 @@ title Push to GitHub
 
 set "REPO=https://github.com/yuushoku-amering/user-research.git"
 set "PROXY=http://127.0.0.1:7897"
+set "LOG=%~dp0push_log.txt"
+set "RAW=%~dp0_jobs\push_raw.txt"
+
+rem ---------- capture this run's output, so it survives the window ----------
+rem  A previous run told us the console can disappear before it can be read.
+rem  So: re-run ourselves through a redirect.  Everything this process writes
+rem  lands in _jobs\push_raw.txt; the :done block staples it into push_log.txt
+rem  together with the exact git/network settings.
+rem  Output is still visible in the window at the same time.
+rem  /logged marks the inner run so it does not recurse.
+if /i not "%~1"=="/logged" (
+  if not exist "%~dp0_jobs" mkdir "%~dp0_jobs" >nul 2>nul
+  call "%~f0" /logged > "%RAW%" 2>&1
+  goto :done
+)
 
 echo.
 echo ================================================================
 echo   Push this workbench to:
 echo   %REPO%
 echo ================================================================
+echo.
+echo   Everything below is also written to push_log.txt
 echo.
 
 rem ---------- 0) git present? ----------
@@ -40,6 +57,10 @@ for /f "delims=" %%G in ('where git 2^>nul') do (
 set "CA="
 if defined GITROOT if exist "%GITROOT%\mingw64\etc\ssl\certs\ca-bundle.crt" set "CA=%GITROOT%\mingw64\etc\ssl\certs\ca-bundle.crt"
 if not defined CA if exist "F:\Git\mingw64\etc\ssl\certs\ca-bundle.crt" set "CA=F:\Git\mingw64\etc\ssl\certs\ca-bundle.crt"
+rem  %GITROOT% comes from `where git`, so it keeps a ".." segment and the
+rem  path reads as "F:\Git\cmd\..\mingw64\...".  That works, but it ends up in
+rem  config.json and in the log, so resolve it to a clean absolute path.
+if defined CA for %%I in ("%CA%") do set "CA=%%~fI"
 
 echo [1/5] git found.  CA bundle: %CA%
 if not defined CA echo       WARNING: no ca-bundle found - the push may fail on TLS.
@@ -153,7 +174,39 @@ echo     Then restart this script.
 goto :done
 
 :done
+echo.
 echo ================================================================
+echo   A copy of everything above is saved here:
+echo     push_log.txt
+echo   If the window closes before you can read it, open that file.
+echo ================================================================
+
+rem ---------- write the surviving log ----------
+rem  Everything the script produced is captured in _jobs\push_raw.txt
+rem  (stdout+stderr).  We then staple it into push_log.txt together with the
+rem  exact git/network settings, so the whole story is in one place even if
+rem  the console window vanishes.
+set "RAW=%~dp0_jobs\push_raw.txt"
+
+> "%LOG%" echo === User Research Workbench : push to GitHub ===
+>>"%LOG%" echo time   : %DATE% %TIME%
+>>"%LOG%" echo repo   : %REPO%
+>>"%LOG%" echo proxy  : %PROXY%   (tried only if the direct route fails)
+>>"%LOG%" echo python : (not used by this script)
+>>"%LOG%" echo(
+>>"%LOG%" echo --- git version ---
+git --version >>"%LOG%" 2>&1
+>>"%LOG%" echo(
+>>"%LOG%" echo --- this repository's network settings ---
+git config --local --get-regexp "^(http|credential|remote)\." >>"%LOG%" 2>&1
+>>"%LOG%" echo(
+>>"%LOG%" echo --- script output ---
+if exist "%RAW%" type "%RAW%" >>"%LOG%" 2>&1
+>>"%LOG%" echo(
+>>"%LOG%" echo === end ===
+
+del "%RAW%" >nul 2>nul
+
 echo.
 pause
 endlocal
