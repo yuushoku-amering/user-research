@@ -178,6 +178,27 @@ chcp 437 >nul 2>nul
 cd /d "%~dp0"
 title LanTai Vesper
 
+rem  ===========================================================================
+rem  IMPORTANT: isolate this Python from whatever Python the host machine has.
+rem
+rem  A user who has ever installed Python may have PYTHONHOME / PYTHONPATH set
+rem  (installers and some tools do this). Those variables OVERRIDE an embedded
+rem  interpreter's own paths, and the bundled Python then dies at startup with:
+rem
+rem      Fatal Python error: init_fs_encoding: failed to get the Python codec
+rem      ModuleNotFoundError: No module named 'encodings'
+rem
+rem  (Reproduced for real, not theorised -- see the fix note in this file.)
+rem  Clearing them here makes the portable build behave the same on every
+rem  machine: it uses ONLY the Python inside this folder.
+rem
+rem  NOTE: `set "X="` really does produce an empty value (verified); a single
+rem  space left behind would be enough to break Python again.
+rem  ===========================================================================
+set "PYTHONHOME="
+set "PYTHONPATH="
+set "PYTHONSTARTUP="
+
 set "BUNDLED=%~dp0_python\python.exe"
 if not exist "%BUNDLED%" goto :nopython
 
@@ -465,6 +486,23 @@ def sanity_check(py_exe, app_dir, do_demo=True):
         log("   [FAIL] %s" % ((r.stderr or r.stdout or "")[-300:])); ok = False
     else:
         log("   [OK] 全部可 import，图也画出来了")
+
+    log("②b 启动脚本有没有把主机的 Python 环境变量隔离掉")
+    # ⚠ 实测过：用户机器上若设了 PYTHONHOME，内置 Python 会**直接起不来**
+    #   （Fatal Python error: init_fs_encoding / No module named 'encodings'）。
+    #   所以启动脚本必须清掉 PYTHONHOME / PYTHONPATH / PYTHONSTARTUP。
+    launcher = os.path.join(os.path.dirname(app_dir), "start-portable.bat")
+    ltxt = ""
+    if os.path.isfile(launcher):
+        ltxt = open(launcher, encoding="ascii", errors="replace").read()
+    need = ['set "PYTHONHOME="', 'set "PYTHONPATH="', 'set "PYTHONSTARTUP="']
+    miss = [x for x in need if x not in ltxt]
+    if miss:
+        log("   [FAIL] 启动脚本里缺这几行：%s" % "、".join(miss))
+        log("          （缺了的话，机器上设过 PYTHONHOME 的用户会打不开）")
+        ok = False
+    else:
+        log("   [OK] PYTHONHOME / PYTHONPATH / PYTHONSTARTUP 都清掉了")
 
     log("③ 依赖闭包有没有缺（pip check）")
     r = run([py_exe, "-m", "pip", "check"])
