@@ -25,7 +25,7 @@ rem  (This mistake was made three times while writing the build scripts.
 rem   Keep this file 100%% ASCII. No exceptions.)
 rem ===========================================================================
 setlocal
-chcp 437 >nul 2>nul
+chcp 65001 >nul 2>nul
 cd /d "%~dp0"
 title LanTai Vesper - install packages
 

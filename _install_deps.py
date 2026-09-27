@@ -35,6 +35,17 @@ import subprocess
 import sys
 import time
 
+# ⚠ 控制台是 GBK 时，打印中文可能抛 UnicodeEncodeError 把整个安装器打断
+#   （这台机器的控制台就是 GBK；项目里的测试脚本都吃过这个亏，
+#    所以在 _selftest.py 里有一条专门的检查）。
+#   包装成 UTF-8 + errors=replace：显示不出来的字符变成 ?，但**绝不让程序死**。
+try:
+    import io as _io
+    sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = _io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+except Exception:
+    pass          # 无 buffer 的环境（IDLE 之类）就算了，不影响主流程
+
 HERE = os.path.dirname(os.path.abspath(__file__))   # 仓库根 = 工作台本体
 REPO = HERE
 REQ = os.path.join(REPO, "requirements.txt")
