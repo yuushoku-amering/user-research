@@ -819,8 +819,53 @@ input.cadd{flex:1; min-width:130px; border:0; outline:none; background:transpare
 .locate .lnrow.hit .lnno{color:var(--warn-ink); font-weight:700}
 .hitnote{color:var(--warn-ink)}
 
+/* ---------- ⚙ 设置面板 ----------
+   这里放的是两个"可选功能"的配置：SPSS 路径、模型 API。
+   为什么值得单独做一页：这两件事原来只能手改 config.json（一个注释很多的 JSON），
+   普通用户不敢动；做成能填 / 能选 / 能测的界面，他们才敢开这两个功能。 */
+.setlead{margin:0 0 14px; font-size:12.8px; color:var(--text2); line-height:1.75}
+.setlead code{background:var(--bg2); padding:1px 5px; border-radius:4px}
+.setsec{border:1px solid var(--line); border-radius:10px; padding:13px 14px;
+  margin-bottom:13px; background:var(--panel2)}
+.sethead{display:flex; align-items:center; gap:9px; margin-bottom:7px}
+.sethead b{font-size:14px; font-family:var(--font-serif)}
+.setsub{margin:14px 0 8px; padding-top:10px; border-top:1px dashed var(--line);
+  font-size:12.5px; font-weight:600; color:var(--brand-ink)}
+.setmsg{font-size:12.5px; color:var(--text2)}
+.setmsg.ok{color:var(--ok-ink)}
+.setmsg.bad{color:var(--err-ink)}
+.setpre{margin:6px 0 0; padding:9px 11px; background:var(--panel); border:1px solid var(--line);
+  border-radius:7px; font:12px/1.65 var(--font-mono); color:var(--ink2);
+  white-space:pre-wrap; word-break:break-word; max-height:240px; overflow:auto}
+.sethint{color:var(--brand-ink); cursor:pointer; text-decoration:none; font-size:12px}
+.sethint:hover{text-decoration:underline}
+.setsec .fnote{background:var(--panel)}
+.setsec .rulechk{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+
+/* ---------- ⚙ 设置面板 ----------
+   这里放两个"可选功能"的配置：SPSS 路径、模型 API。
+   为什么值得单独做一页：这两件事原来只能手改 config.json（一个注释很多的 JSON），
+   普通用户不敢动；做成能填 / 能选 / 能测的界面，他们才敢开这两个功能。 */
+.setlead{margin:0 0 14px; font-size:12.8px; color:var(--text2); line-height:1.75}
+.setlead code{background:var(--bg2); padding:1px 5px; border-radius:4px}
+.setsec{border:1px solid var(--line); border-radius:10px; padding:13px 14px;
+  margin-bottom:13px; background:var(--panel2)}
+.sethead{display:flex; align-items:center; gap:9px; margin-bottom:7px}
+.sethead b{font-size:14px; font-family:var(--font-serif)}
+.setsub{margin:14px 0 8px; padding-top:10px; border-top:1px dashed var(--line);
+  font-size:12.5px; font-weight:600; color:var(--brand-ink)}
+.setmsg{font-size:12.5px; color:var(--text2)}
+.setmsg.ok{color:var(--ok-ink)}
+.setmsg.bad{color:var(--err-ink)}
+.setpre{margin:6px 0 0; padding:9px 11px; background:var(--panel); border:1px solid var(--line);
+  border-radius:7px; font:12px/1.65 var(--font-mono); color:var(--ink2);
+  white-space:pre-wrap; word-break:break-word; max-height:240px; overflow:auto}
+.sethint{color:var(--brand-ink); cursor:pointer; text-decoration:none; font-size:12px}
+.sethint:hover{text-decoration:underline}
+.setsec .fnote{background:var(--panel)}
+.setsec .rulechk{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+
 /* 「自定义替换」的逐行自检 --------------------------------------------------
-   每行一条规则，标出它认不认得出（✓/✗）+ 是哪一类。
    为什么要做：研究员连点了几个选项、跑完却看不出哪条起作用，
    最后只能得出"我选了没效果"——把判定摆在眼前，就不用猜。 */
 .rulechk-wrap{margin-top:5px}

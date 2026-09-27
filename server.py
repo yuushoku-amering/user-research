@@ -475,7 +475,9 @@ def api_state(query):
         return {
             "ok": True, "workbench": paths.WORKBENCH,
             "env": check_env(cfg),
-            "config": {"port": cfg.get("port"), "llm": cfg.get("llm"),
+            # ⚠ `llm` 一律过 public_conf —— 它会把 api_key 换成"设没设 + 脱敏形态"，
+            #   别直接发 cfg.get("llm")（那会把密钥原文送进浏览器）
+            "config": {"port": cfg.get("port"), "llm": llm_mod.public_conf(cfg),
                        "llm_status": llm_mod.status(cfg),
                        "export_dir": cfg.get("export_dir") or default_export_dir()},
             "blocks": [registry.public(b) for b in blocks],
@@ -491,7 +493,9 @@ def api_state(query):
         return {
             "ok": True, "workbench": paths.WORKBENCH,
             "env": check_env(cfg),
-            "config": {"port": cfg.get("port"), "llm": cfg.get("llm"),
+            # ⚠ `llm` 一律过 public_conf —— 它会把 api_key 换成"设没设 + 脱敏形态"，
+            #   别直接发 cfg.get("llm")（那会把密钥原文送进浏览器）
+            "config": {"port": cfg.get("port"), "llm": llm_mod.public_conf(cfg),
                        "llm_status": llm_mod.status(cfg),
                        "export_dir": cfg.get("export_dir") or default_export_dir()},
             "blocks": [registry.public(b) for b in blocks],
@@ -504,7 +508,8 @@ def api_state(query):
         "ok": True,
         "workbench": paths.WORKBENCH,
         "env": check_env(cfg),
-        "config": {"port": cfg.get("port"), "llm": cfg.get("llm"),
+        # ⚠ 同上：这处也要过 public_conf（别把 api_key 原文发进浏览器）
+        "config": {"port": cfg.get("port"), "llm": llm_mod.public_conf(cfg),
                    "llm_status": llm_mod.status(cfg),
                    "export_dir": cfg.get("export_dir") or default_export_dir()},
         "blocks": [registry.public(b) for b in blocks],
@@ -699,10 +704,61 @@ class Handler(BaseHTTPRequestHandler):
                                   "rows": [list(r) for r in rows]})
             if path == "/api/ping":
                 return self.json({"ok": True, "t": time.time()})
+            if path == "/api/settings":
+                return self.json(self.settings_state())
             return self.err("没有这个接口：%s" % path, 404)
         except Exception as e:
             traceback.print_exc()
             return self.err("%s: %s" % (type(e).__name__, e), 500)
+
+    def settings_state(self):
+        """「⚙ 设置」面板要的全部信息。**密钥只给脱敏形态 + 设没设**。
+
+        这里**不返回任何密钥原文**（前端拿到的 `api_key` 永远是空串），
+        所以这个接口即使被截图、被贴到聊天里，也不会泄露。
+        """
+        from core import spss as spss_mod
+        from core import llm as llm_mod          # ⚠ 必须显式导入：`llm_mod` 只是 api_state
+        cfg = paths.load_config()                #    里的局部名，别指望它在别的方法里也在
+        pub = llm_mod.public_conf(cfg)
+        st = llm_mod.status(cfg)
+        exe = ""
+        try:
+            exe = spss_mod.find_exe() or ""
+        except Exception:
+            exe = ""
+        cands = []
+        try:
+            for c in spss_mod.spss_candidates():
+                cands.append(c if isinstance(c, dict) else {"path": c, "label": ""})
+        except Exception:
+            cands = []
+        return {
+            "ok": True,
+            "workbench": paths.WORKBENCH,
+            "config_file": getattr(paths, "CONFIG_FILE", ""),
+            "spss": {
+                "exe": exe,
+                "exists": bool(exe and os.path.exists(exe)),
+                "find_help": ("" if (exe and os.path.exists(exe))
+                              else spss_mod.explain_not_found(cfg)),
+                "candidates": cands,
+                "running": bool(spss_mod.stats_running()),
+            },
+            "llm": {
+                "enabled": bool(pub.get("enabled")),
+                "provider": st["provider"],                      # "api" / "dsh" / ""
+                "api_base": pub.get("api_base") or "",
+                "api_model": pub.get("api_model") or "",
+                "api_key_set": bool(pub.get("api_key_set")),
+                "api_key_mask": pub.get("api_key_mask") or "",
+                "has_dsh": bool(st["ready"] and st["provider"] == "dsh"),
+                "base_hints": [{"base": b, "name": n} for b, n in llm_mod.API_BASE_HINTS],
+                "default_base": llm_mod.DEFAULT_API_BASE,
+                "default_model": llm_mod.DEFAULT_API_MODEL,
+                "timeout": (cfg.get("llm") or {}).get("timeout") or 240,
+            },
+        }
 
     def api_artifact(self, q):
         """项目内的文件：图片直接出二进制，文本出 JSON。"""
@@ -1037,8 +1093,13 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/pick":
                 # 弹原生选择框，把路径回填到输入框；dry_run 只把脚本还回来（自检用，不弹框）
+                # kind: "dir" = 选文件夹；"file" / "anyfile" = 选文件（都走 OpenFileDialog）。
+                #   ⚠ "anyfile" 只是**语义区分**：前端用它表示"我要绝对路径、别把文件拷进项目"
+                #     （设置页选 SPSS 的 stats.exe 就是这种）。这里的行为和 "file" 一样。
                 kind = body.get("kind") or "file"
-                title = body.get("title") or ("选择文件" if kind == "file" else "选择文件夹")
+                if kind not in ("dir", "file", "anyfile"):
+                    kind = "file"
+                title = body.get("title") or ("选择文件夹" if kind == "dir" else "选择文件")
                 start = body.get("start") or ""
                 filt = body.get("filter") or "所有文件 (*.*)|*.*"
                 if body.get("probe"):
@@ -1277,14 +1338,60 @@ class Handler(BaseHTTPRequestHandler):
                 from core import llm
                 return self.json(llm.suggest(body))
 
+            # ---------- ⚙ 设置面板 ----------
+            if path == "/api/settings/save":
+                from core import llm as llm_mod
+                cfg = paths.load_config()
+                data = body.get("settings") or {}
+                what = []
+                sp = data.get("spss") or {}
+                if "exe" in sp:
+                    exe = str(sp.get("exe") or "").strip().strip('"')
+                    # 给了路径但文件不在 → 存下去没意义，还会让后面每次找都失败
+                    if exe and not os.path.isfile(exe):
+                        return self.err("这个路径下没有找到文件：\n%s\n\n"
+                                        "确认一下是不是 stats.exe 的完整路径"
+                                        "（在资源管理器里按住 Shift 右键它 →「复制文件地址」）。" % exe)
+                    cfg["spss_exe"] = exe
+                    what.append("SPSS 路径" + ("（清空了，改回自动探测）" if not exe else ""))
+                ll = data.get("llm") or {}
+                if ll:
+                    cleaned = llm_mod.sanitize_llm_patch(ll)
+                    if cleaned:
+                        cfg.setdefault("llm", {}).update(cleaned)
+                        if "api_key" in cleaned:
+                            what.append("模型密钥（已更新）")
+                        if "api_base" in cleaned or "api_model" in cleaned:
+                            what.append("模型接口")
+                        if "enabled" in cleaned:
+                            what.append("模型通道" + ("打开" if cleaned["enabled"] else "关闭"))
+                paths.save_config(cfg)
+                return self.json({"ok": True, "saved": what, "settings": self.settings_state()})
+
+            if path == "/api/llm/test":
+                from core import llm
+                return self.json(llm.test_api())
+
+            if path == "/api/spss/apply":
+                from core import spss as spss_mod
+                cfg = paths.load_config()
+                exe = spss_mod.find_exe(cfg)
+                return self.json({"ok": bool(exe), "exe": exe,
+                                  "candidates": spss_mod.spss_candidates(),
+                                  "help": "" if exe else spss_mod.explain_not_found(cfg)})
+
             if path == "/api/config/save":
+                from core import llm as llm_mod
                 cfg = paths.load_config()
                 data = body.get("config") or {}
                 for k in ("python", "port", "spss_exe"):
                     if k in data:
                         cfg[k] = data[k]
                 if "llm" in data:
-                    cfg["llm"].update(data["llm"])
+                    # ⚠ 空密钥 = "别动它"，不是"清空它"。
+                    #   界面上密钥那一栏永远是空的（我们只回显脱敏形态），
+                    #   如果空串直接写进去，用户每次点保存都会把自己的密钥抹掉。
+                    cfg["llm"].update(llm_mod.sanitize_llm_patch(data["llm"]))
                 paths.save_config(cfg)
                 # 端口下回启动才生效，这里只回存了什么
                 return self.json({"ok": True, "config": cfg})

@@ -3,23 +3,37 @@
 
 「**模型给初稿 → 研究员在界面上改 → 再跑**」。
 
-走 DSH 的 headless 模式 + **独立 DSH_HOME**：
-- 复用前辈已经在用的凭据（**只读，不复制**，注入环境变量）
-- 不往前辈的会话栏里堆记录（那条是《完全权限规范》里的硬要求）
+**两条路，自己选**（2026-09-27 加的第二条）：
+
+1. **自带 API（推荐给普通用户）** —— 在界面「⚙ 设置」里填三样东西：
+   接口地址 / 密钥 / 型号，然后点「测试连接」。走的是**标准 OpenAI 兼容**的
+   `POST {api_base}/chat/completions`，所以 DeepSeek、硅基流动、智谱、本地
+   Ollama / vLLM 都能填。**密钥只写在这台机器的 `config.json` 里**
+   （那个文件在 `.gitignore` 里，不会进仓库），界面上读回来只显示"已设置"。
+
+2. **复用 DSH headless**（原来那条，留着自己用） —— 找 npx 缓存里的 DSH、
+   从 `~/.dsh/.credentials.yaml` 读凭据（**只读、不复制、不打印**），
+   用 node 跑 headless，会话写进独立的 DSH_HOME（不堆进用户的会话栏）。
+
+3. **不配也行** —— 所有组块都能脱离模型完整跑通。缺模型时界面会给
+   「把任务书复制走 → 贴到任意聊天窗口 → 结果贴回来」这条零配置的路。
 
 ⚠ 两个关键点（都是踩过的）：
-1. headless 的任务文本只能走命令行，而 Windows 命令行装不下几十 KB。
-   → 所以这里把材料**写成临时文件**，命令行只传一句「读这个文件、按里面要求做」，
-     模型自己用 read 工具去读，结果从 stdout 回来。
+1. DSH 那条路的任务文本只能走命令行，而 Windows 命令行装不下几十 KB。
+   → 所以把材料**写成临时文件**，命令行只传一句「读这个文件、按里面要求做」。
+   （API 那条路没这个限制，整份任务书直接作为消息内容发出去。）
 2. 任务文本里的中文路径要当**独立的参数**传（列表形式），别自己拼字符串。
 
-⚠ 默认关闭。不打开也能用：所有组块都能脱离模型完整跑通。
+⚠ 默认关闭。
 """
+import json
 import os
 import re
 import shutil
 import subprocess
 import time
+import urllib.error
+import urllib.request
 
 from . import paths, registry
 from .project import Project
@@ -28,6 +42,16 @@ DEFAULT_HOME = os.path.join(paths.WORKBENCH, "dsh-home")
 CRED_FILE = os.path.join(os.path.expanduser("~"), ".dsh", ".credentials.yaml")
 MAX_MATERIAL_CHARS = 20000        # 单个材料文件最多喂这么多字
 _NODE_FALLBACK = r"F:\New Folder\node.exe"
+
+# 常见的 OpenAI 兼容端点：只作为「填空提示」，用户想填什么就填什么
+API_BASE_HINTS = [
+    ("https://api.deepseek.com/v1", "DeepSeek"),
+    ("https://api.siliconflow.cn/v1", "硅基流动"),
+    ("https://open.bigmodel.cn/api/paas/v4", "智谱 GLM"),
+    ("http://127.0.0.1:11434/v1", "本地 Ollama"),
+]
+DEFAULT_API_BASE = "https://api.deepseek.com/v1"
+DEFAULT_API_MODEL = "deepseek-chat"
 
 
 # --------------------------------------------------------------------------- #
@@ -79,27 +103,231 @@ def dsh_home(cfg=None):
     return (cfg.get("llm") or {}).get("dsh_home") or DEFAULT_HOME
 
 
+# --------------------------------------------------------------------------- #
+# 「自带 API」那条路：配置读取与安全检查
+# --------------------------------------------------------------------------- #
+
+def api_conf(cfg=None):
+    """把 llm 里跟 API 有关的几项读出来（键名固定，界面就填这几个）。"""
+    llm = (cfg or paths.load_config()).get("llm") or {}
+    return {
+        "base": (llm.get("api_base") or "").strip(),
+        "key": (llm.get("api_key") or "").strip(),
+        "model": (llm.get("api_model") or "").strip(),
+    }
+
+
+def mask_key(k):
+    """给界面看的脱敏形式：**绝不能把密钥原文发回前端**。
+
+    只留头 3 位与尾 2 位；太短就整段打码（短密钥露头尾等于露大半）。
+    """
+    k = (k or "").strip()
+    if not k:
+        return ""
+    if len(k) <= 8:
+        return "•" * len(k)
+    return k[:3] + "…" + "•" * 6 + k[-2:]
+
+
+def public_conf(cfg=None):
+    """**发给浏览器的 llm 配置**：密钥换成"设没设 + 脱敏形态"。
+
+    ⚠ 为什么要有这个函数：`/api/state` 原来是把 `cfg["llm"]` **整个**发给前端的
+      （`"llm": cfg.get("llm")`）。以前 llm 里只有 dsh_home / model 这类不敏感的东西，
+      所以没问题；但现在多了 `api_key` —— 再整份发出去，**密钥原文就躺在浏览器里了**
+      （会被写进页面状态、可能进浏览器缓存、任何人按 F12 都能看到）。
+      ⇒ 规则：**凡是"往界面发的配置"，一律过这个函数**，别直接发 cfg["llm"]。
+    """
+    llm = dict((cfg or paths.load_config()).get("llm") or {})
+    key = (llm.pop("api_key", "") or "").strip()
+    llm["api_key"] = ""                    # 原文绝不外发，位置留着，前端知道有这一栏
+    llm["api_key_set"] = bool(key)
+    llm["api_key_mask"] = mask_key(key)
+    return llm
+
+
+# 界面允许改的 llm 键（白名单：别让人从接口往配置里塞任意东西）
+LLM_WRITABLE = ("enabled", "provider", "api_base", "api_key", "api_model", "timeout", "model")
+
+
+def sanitize_llm_patch(patch):
+    """把界面发来的 llm 片段清洗成"能安全写进 config"的样子。
+
+    两条规矩：
+    1. **只认白名单里的键** —— 其它键一律丢掉（不然接口能往配置里塞任意东西）。
+    2. **`api_key` 是空串时整条丢掉** —— 意思是"别动它"，而不是"清空它"。
+       界面上密钥那栏永远是空的（我们只回显脱敏形态），
+       如果空串直接写进去，用户每点一次保存就把自己的密钥抹掉了。
+       真要清空：把 `api_key` 显式写成 `null`。
+    """
+    out = {}
+    for k in LLM_WRITABLE:
+        if k not in patch:
+            continue
+        v = patch[k]
+        if k == "api_key":
+            if v is None:
+                out[k] = ""            # 显式清空
+            elif str(v).strip():
+                out[k] = str(v).strip()
+            # 空串 / 全是空白 → 丢掉这一条，保留原来的密钥
+            continue
+        if k == "enabled":
+            out[k] = bool(v)
+        elif k == "timeout":
+            try:
+                t = int(v)
+            except (TypeError, ValueError):
+                continue
+            out[k] = max(10, min(1800, t))     # 10 秒 ~ 30 分钟，别让人填出 0 或天文数字
+        elif k in ("api_base", "api_model", "model", "provider"):
+            out[k] = str(v or "").strip()
+        else:
+            out[k] = v
+    return out
+
+
+def api_ready(cfg=None):
+    c = api_conf(cfg)
+    return bool(c["base"] and c["key"] and c["model"])
+
+
+def _api_chat(base, key, model, messages, timeout=240, max_tokens=None):
+    """标准 OpenAI 兼容的 chat/completions 调用。**只用标准库**（不引入 requests）。
+
+    返回 (正文, 秒数)。出错抛 RuntimeError，消息是给人看的人话。
+    """
+    url = base.rstrip("/")
+    if not url.endswith("/chat/completions"):
+        url += "/chat/completions"
+    payload = {"model": model, "messages": messages, "stream": False}
+    if max_tokens:
+        payload["max_tokens"] = int(max_tokens)
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    # ⚠ 走系统代理（Clash 之类）时会用到这两个环境变量；urllib 默认会读它们，
+    #   这里不用手动处理，但**HTTP_PROXY 大小写两版都要在**（有的库只认一种）。
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", "Bearer " + key)
+    req.add_header("User-Agent", "LanTai-Vesper/1.0")
+
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "replace")[:400]
+        except Exception:
+            pass
+        human = {
+            401: "密钥不对或没带上（HTTP 401）。检查「密钥」那一栏是不是复制全了。",
+            403: "密钥没有这个模型的权限（HTTP 403）。看看「型号」写对了没。",
+            404: "接口地址不对（HTTP 404）。注意地址要写到 /v1 这一层。",
+            429: "被限流了（HTTP 429）。等一会儿再试，或换个型号。",
+        }.get(e.code, "接口返回 HTTP %d。" % e.code)
+        raise RuntimeError("%s\n服务端说：%s" % (human, detail or "(没给内容)"))
+    except urllib.error.URLError as e:
+        raise RuntimeError(
+            "连不上这个地址：%s\n"
+            "常见原因：地址写错、没开代理、或者这台机器出不去网。\n"
+            "（本机 curl 是坏的，但 Python 走的是另一条路，所以别拿 curl 成不成功来判断。）"
+            % (getattr(e, "reason", e),))
+    except Exception as e:
+        raise RuntimeError("调用失败：%s: %s" % (type(e).__name__, e))
+    secs = round(time.time() - t0, 1)
+
+    try:
+        j = json.loads(raw)
+    except Exception:
+        raise RuntimeError("返回的不是 JSON，前 300 字：%s" % raw[:300])
+    if isinstance(j, dict) and j.get("error"):
+        err = j["error"]
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+        raise RuntimeError("接口报错：%s" % (msg or err))
+    try:
+        return j["choices"][0]["message"]["content"], secs
+    except Exception:
+        raise RuntimeError("返回结构里没有 choices[0].message.content，前 300 字：%s" % raw[:300])
+
+
+def test_api(cfg=None, timeout=30):
+    """「测试连接」：发一句最短的话，只要它能回就说明三样都填对了。
+
+    ⚠ 这里**故意不回显密钥**，也不把服务端返回的原文整段吐出去
+      （有的服务端会在报错里带上你的 key）。
+    """
+    cfg = cfg or paths.load_config()
+    c = api_conf(cfg)
+    if not c["base"]:
+        return {"ok": False, "error": "还没填「接口地址」。"}
+    if not c["key"]:
+        return {"ok": False, "error": "还没填「密钥」。"}
+    if not c["model"]:
+        return {"ok": False, "error": "还没填「型号」。"}
+    try:
+        text, secs = _api_chat(c["base"], c["key"], c["model"],
+                               [{"role": "user", "content": "只回两个字：收到"}],
+                               timeout=timeout, max_tokens=16)
+    except Exception as e:
+        return {"ok": False, "error": str(e), "model": c["model"]}
+    return {"ok": True, "model": c["model"], "seconds": secs,
+            "reply": (text or "").strip()[:60]}
+
+
 def status(cfg=None):
+    """界面用它决定「模型」那个 chip 是什么颜色、点开能不能用。
+
+    ⚠ 这里**只报"密钥设没设"，绝不返回密钥本身**（`mask_key` 给的是脱敏形态）。
+    """
     cfg = cfg or paths.load_config()
     llm = cfg.get("llm") or {}
     home = dsh_home(cfg)
     node = find_node()
     binjs = find_dsh_bin()
     key = read_key()
-    ready = bool(node and binjs and key and os.path.isdir(home))
+    dsh_ok = bool(node and binjs and key and os.path.isdir(home))
+
+    c = api_conf(cfg)
+    api_ok = bool(c["base"] and c["key"] and c["model"])
+
+    # 优先用「自带 API」：它不需要 node / DSH，普通用户只用填三个框
+    ready = api_ok or dsh_ok
+    if api_ok:
+        which, model = "api", c["model"]
+        note = "就绪（自带 API：%s）" % c["model"]
+    elif dsh_ok:
+        which, model = "dsh", (llm.get("model") or "deepseek-flash")
+        note = "就绪（复用 DSH：%s）" % model
+    else:
+        which, model = "", (c["model"] or llm.get("model") or DEFAULT_API_MODEL)
+        miss = []
+        if not api_ok:
+            miss.append("自带 API（去「⚙ 设置」填地址/密钥/型号）")
+        if not dsh_ok:
+            dsh_miss = [x for x, ok in (("node", bool(node)), ("DSH bin", bool(binjs)),
+                                        ("凭据", bool(key)), ("dsh-home", os.path.isdir(home))) if not ok]
+            miss.append("DSH（缺 %s）" % "、".join(dsh_miss) if dsh_miss else "DSH")
+        note = "两条路都还没就绪 —— " + "；".join(miss)
     return {
         "enabled": bool(llm.get("enabled")),
         "ready": ready,
+        "provider": which,                 # "api" | "dsh" | ""
         "node": node,
         "dsh_bin": binjs,
         "dsh_home": home,
         "dsh_home_exists": os.path.isdir(home),
-        "key_found": bool(key),
-        "model": llm.get("model") or "deepseek-flash",
-        "note": ("就绪" if ready else
-                 "缺：" + "、".join([x for x, ok in
-                                    (("node", bool(node)), ("DSH bin", bool(binjs)),
-                                     ("凭据", bool(key)), ("dsh-home", os.path.isdir(home))) if not ok])),
+        "key_found": bool(key),            # DSH 那条路的凭据文件
+        # 自带 API 的现状：**给界面看的，密钥只给脱敏形态**
+        "api_base": c["base"],
+        "api_model": c["model"],
+        "api_key_set": bool(c["key"]),
+        "api_key_mask": mask_key(c["key"]),
+        "model": model,
+        "note": note,
     }
 
 
@@ -326,13 +554,25 @@ def _split_fields(text, ofields):
     return out
 
 
+def pick_provider(cfg=None):
+    """用哪条路：**自带 API 优先**（它不需要 node / DSH，普通用户只用填三个框）。
+
+    返回 "api" / "dsh" / ""（两条都不行）。
+    """
+    cfg = cfg or paths.load_config()
+    if api_ready(cfg):
+        return "api"
+    st = status(cfg)
+    return "dsh" if st["ready"] else ""
+
+
 def suggest(body):
     cfg = paths.load_config()
     llm = cfg.get("llm") or {}
     if not llm.get("enabled"):
         return {"ok": False, "skeleton": True,
-                "error": "模型通道现在关着。打开方式：改 workbench\\config.json 里 llm.enabled = true，"
-                         "或在界面右上角点「模型 关」。\n\n不打开也完全能用——七个组块都能脱离模型跑通。",
+                "error": "模型通道现在关着。打开方式：点界面右上角的「模型」chip，"
+                         "或在「⚙ 设置」里打开。\n\n不打开也完全能用——所有组块都能脱离模型跑通。",
                 "status": status(cfg)}
 
     block_id = body.get("block_id") or ""
@@ -361,19 +601,34 @@ def suggest(body):
     except Exception as e:
         return {"ok": False, "error": "组装任务书失败：%s" % e, "status": st}
 
-    task = ("读文件 %s ，严格按里面的【任务】和【输出要求】执行，"
-            "把结果直接作为你的最终答复输出。不要写文件、不要跑命令、不要反问。" % task_file)
-
+    prov = pick_provider(cfg)
+    timeout = int(llm.get("timeout") or 240)
     try:
-        text, errs, secs, code = _run_headless(task, cfg, int(llm.get("timeout") or 240))
+        if prov == "api":
+            # ⚠ API 这条路**没有命令行的长度限制**，所以任务书整份当消息发出去，
+            #   不像 DSH 那条路要「先写文件、再让模型自己去读」。
+            with open(task_file, "r", encoding="utf-8") as f:
+                task_text = f.read()
+            c = api_conf(cfg)
+            text, secs = _api_chat(
+                c["base"], c["key"], c["model"],
+                [{"role": "system",
+                  "content": "你是用户研究的方法学助手。严格按用户给的任务书执行，"
+                             "直接输出最终内容（Markdown），不要前言、不要解释你的做法、不要反问。"},
+                 {"role": "user", "content": task_text}],
+                timeout=timeout)
+        else:
+            task = ("读文件 %s ，严格按里面的【任务】和【输出要求】执行，"
+                    "把结果直接作为你的最终答复输出。不要写文件、不要跑命令、不要反问。" % task_file)
+            text, errs, secs, code = _run_headless(task, cfg, timeout)
     except Exception as e:
-        return {"ok": False, "error": str(e), "status": st, "task_file": task_file}
+        return {"ok": False, "error": str(e), "status": st, "task_file": task_file,
+                "provider": prov}
 
     if not text:
         return {"ok": False,
-                "error": "模型没有输出（退出码 %s）。stderr 末尾：%s"
-                         % (code, " | ".join(errs.splitlines()[-3:]) or "（空）"),
-                "status": st, "task_file": task_file}
+                "error": "模型没有输出。任务书在 %s，可以自己贴到聊天窗口里试。" % task_file,
+                "status": st, "task_file": task_file, "provider": prov}
 
     ofields = (block.get("llm") or {}).get("output_fields") or []
     fields = _split_fields(text, ofields)
@@ -404,6 +659,7 @@ def suggest(body):
         "block_name": block.get("name"),
         "title": (block.get("llm") or {}).get("title") or "模型初稿",
         "model": st["model"],
+        "provider": prov,                  # "api" | "dsh"，界面用它说明"这次走的哪条路"
         "seconds": secs,
         "task_file": task_file,
         "note": "这是**初稿**：请自己过一遍再决定要不要用。模型不做算术，数字仍由 Python 产生。",

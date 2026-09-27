@@ -242,6 +242,40 @@ def find_exe(cfg=None):
     return ""
 
 
+def spss_candidates():
+    """给「⚙ 设置」面板用：**把"我找过哪些地方、结果如何"摊开**。
+
+    为什么要有这个：用户说「没装 SPSS」和「装了但工作台没找到」是两件事，
+    而界面上原来只会显示一个「SPSS —」，他分不清是哪种。
+    把候选目录连"有没有 stats.exe"一起列出来，他就能自己判断
+    （"咦，这几个常见的都找过了、确实没有" vs "我这装的是绿色版，路径不常见"）。
+
+    ⚠ 只查文件存在性，**绝不启动 SPSS**（理由见 `find_exe` 的说明）。
+    返回 [{path, exe, exists, kind}]，**只列真实存在的目录**，免得刷一屏不存在的路径。
+    """
+    out = []
+    seen = set()
+    for root in _spss_roots():
+        r = os.path.abspath(root)
+        if r.lower() in seen:
+            continue
+        seen.add(r.lower())
+        exe = os.path.join(root, "stats.exe")
+        has = os.path.isfile(exe)
+        # 给个能看懂的说明：这是 IBM 标准布局，还是自定义位置
+        low = r.lower().replace("/", "\\")
+        if "ibm\\spss\\statistics" in low:
+            kind = "IBM 标准安装位置"
+        elif "\\spss" in low:
+            kind = "常见自定义位置"
+        else:
+            kind = "其它候选"
+        out.append({"path": r, "exe": exe if has else "", "exists": has, "kind": kind})
+    # 有 stats.exe 的排最前 —— 设置页主要就是给人挑这个
+    out.sort(key=lambda d: (not d["exists"], d["path"]))
+    return out
+
+
 def explain_not_found(cfg=None):
     """找不到 SPSS 时，给人一句"能照着做"的话。
 

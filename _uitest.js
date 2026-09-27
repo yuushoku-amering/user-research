@@ -118,6 +118,8 @@ const wrapped = src + `
   fmtBytes, openSaveProject, railHtml, showSensitiveGuard,
   // 主题：初值判定 / 切换 / 落下去（见 【34】）
   applyTheme, toggleTheme, initializeTheme, readSavedTheme, systemPrefersDark,
+  // ⚙ 设置面板（见 【35】）：顶栏状态 chip + 设置页 HTML
+  envChipsHtml, settingsModalHtml, showSettings, saveSettings, pickAnyFile,
   // 变量表：渲染 / 提交序列化 / 单元格校验 / 加删行 / 自动读回
   varTableHtml, collectForm, varCellBad, varRowBad, varRowsOf, varRowsFilled, varTableSet,
   varTableAddRow, varTableDelRow, varTableMaybeAutoPull, varTableText, cfApply, cfReplace,
@@ -1510,6 +1512,58 @@ const tick = () => new Promise(r => setImmediate(r));
   ok(typeof tbEl.onclick === 'function', '顶栏那个主题按钮挂上了点击处理');
   ok(String(tbEl.title || '').indexOf('深色') >= 0 || String(tbEl.title || '').indexOf('浅色') >= 0,
      '按钮的提示里写着当前是深还是浅');
+
+  console.log('\n【35】⚙ 设置面板：SPSS 路径 + 模型 API');
+  // 这一组守两件真出过问题的事：
+  //   ① 「导入」chip 原来要求 openpyxl **和** pyreadstat 都装齐才算 ✅，
+  //      于是没装 pyreadstat 的机器上它永远是红的 —— 而 pyreadstat 是可选件。
+  //   ② 设置页会拿到 API 相关字段，**密钥绝不能出现在发给浏览器的 HTML 里**。
+  const envBase = { python: 'x\\python.exe', python_exists: true, spss: 'D:\\SPSS\\stats.exe',
+                    spss_exists: true, libs: { openpyxl: true, pyreadstat: false } };
+  const cfgLlmOff = { llm: { enabled: false }, llm_status: { ready: false, provider: '' } };
+  const chips1 = T4.envChipsHtml(envBase, cfgLlmOff);
+  ok(/导入 ✅/.test(chips1), '装了 openpyxl（没装 pyreadstat）时「导入」是绿的（不拿可选件当必要条件）');
+  ok(chips1.indexOf('pyreadstat') >= 0 && chips1.indexOf('csv/xlsx 不受影响') >= 0,
+     '悬停里说清了"没 pyreadstat 只影响 .sav"（不然用户看见红的会以为环境坏了）');
+  const chips2 = T4.envChipsHtml({ ...envBase, libs: { openpyxl: false, pyreadstat: true } }, cfgLlmOff);
+  ok(/导入 缺包/.test(chips2), '真缺 openpyxl 时才是红的');
+  const chips3 = T4.envChipsHtml(envBase, { llm: { enabled: true }, llm_status: { ready: true, provider: 'api', model: 'deepseek-chat' } });
+  ok(chips3.indexOf('自带 API') >= 0, '模型 chip 的悬停里说明了走的是哪条路（API / DSH）');
+
+  const stApi = {
+    config_file: 'C:\\x\\config.json',
+    spss: { exe: '', exists: false, find_help: '没找到 SPSS 的可执行文件（stats.exe）。',
+            candidates: [{ path: 'D:\\SPSS', exe: 'D:\\SPSS\\stats.exe', exists: true, kind: '常见自定义位置' }] },
+    llm: { enabled: false, provider: '', api_base: 'https://api.deepseek.com/v1',
+           api_model: 'deepseek-chat', api_key_set: false, api_key_mask: '',
+           base_hints: [{ base: 'https://api.deepseek.com/v1', name: 'DeepSeek' }],
+           default_base: 'https://api.deepseek.com/v1', default_model: 'deepseek-chat' },
+  };
+  let setHtml = T4.settingsModalHtml(stApi);
+  ok(setHtml.indexOf('SPSS 复核') >= 0 && setHtml.indexOf('模型建议') >= 0, '两节都在（SPSS / 模型）');
+  ok(setHtml.indexOf('没找到') >= 0, '没找到 SPSS 时如实标「没找到」');
+  ok(setHtml.indexOf('没找到？看看怎么办') >= 0, '并且给了"没找到怎么办"的折叠说明（不只报个错就完事）');
+  ok(setHtml.indexOf('用这个') >= 0, '候选路径旁边有「用这个」——让人一点就填进去');
+  ok(setHtml.indexOf('复制任务书') >= 0, '明确写了"不配模型也能用任务书贴回来"这条路');
+
+  // ⚠ 最关键的一条：密钥绝不能出现在发给浏览器的 HTML 里
+  const stKey = JSON.parse(JSON.stringify(stApi));
+  stKey.llm.api_key_set = true;
+  stKey.llm.api_key_mask = 'sk-…••••••ef';
+  stKey.llm.api_key = '';                       // 服务端本来就只给空串
+  setHtml = T4.settingsModalHtml(stKey);
+  ok(setHtml.indexOf('sk-…••••••ef') >= 0, '已设置时显示脱敏形态（人知道"设过了"）');
+  ok(setHtml.indexOf('sk-') < 0 || setHtml.indexOf('sk-…') >= 0, 'HTML 里只有脱敏形态');
+  ok(!/sk-[A-Za-z0-9]{16,}/.test(setHtml), '**没有完整密钥**（服务端只给空串 + 掩码，前端不该出现原文）');
+  ok(setHtml.indexOf('要换就填新的') >= 0, '空着那一栏的占位说明白了"不填 = 保持不动"（不然人会以为要重填）');
+
+  const stDsh = JSON.parse(JSON.stringify(stApi));
+  stDsh.llm.provider = 'dsh';
+  stDsh.llm.has_dsh = true;
+  ok(T4.settingsModalHtml(stDsh).indexOf('DSH 就绪') >= 0, '走 DSH 那条路时如实标出来');
+  const stReady = JSON.parse(JSON.stringify(stApi));
+  stReady.llm.provider = 'api';
+  ok(T4.settingsModalHtml(stReady).indexOf('自带 API 就绪') >= 0, '自带 API 就绪时也如实标出来');
 
   console.log('\n' + (fail === 0 ? '全部通过' : '有失败项') + '：' + pass + ' 通过 / ' + fail + ' 失败\n');
   process.exit(fail === 0 ? 0 : 1);
