@@ -19,18 +19,38 @@
 
 ## ⬇️ 先下载：两种版本，选一个
 
-| | **便携版**（推荐给大多数人） | **源码版**（这一页就是） |
+| | **便携版**（推荐给大多数人） | **源码版** |
 |---|---|---|
 | **要装 Python 吗** | **不用** —— 包里自带 Python 和全部依赖 | 要（Python 3.8+ 和五个库） |
-| 多大 | 约 120 MB | 约 3 MB |
+| 多大 | 约 122 MB | 约 3 MB |
 | 拿到就能用吗 | 解压 → 双击 `start-portable.bat` | 先装依赖、复制 config，再双击 `启动工作台.bat` |
-| 从哪下 | **阿里云盘**：`【便携版下载】`（链接待填） | 本页右上 `Code` → `Download ZIP`，或 `git clone` |
+| **从哪下** | **👉 [下载页 Releases](https://github.com/yuushoku-amering/user-research/releases/latest)** | **👉 本页右上绿色 `Code` → `Download ZIP`** |
 
-> **不确定选哪个？** 看 → [`便携版/两个版本有什么区别.md`](便携版/两个版本有什么区别.md)
-> （一句话结论：**只想做研究 → 便携版；电脑上已经有 Python → 源码版**。）
+### 便携版怎么装（3 步）
 
-> 便携版约 120 MB，**超过 GitHub 单文件 100 MB 的限制**，所以它放在阿里云盘上
-> （国内下载也快得多）。它的代码和源码版**完全一样**，只是把 Python 一起打包了。
+在[下载页](https://github.com/yuushoku-amering/user-research/releases/latest)下这 5 个文件：
+
+```
+Vesper-portable.zip.001   45 MB   ┐
+Vesper-portable.zip.002   45 MB   ├ 三个分片
+Vesper-portable.zip.003   32 MB   ┘
+merge-parts.bat                   ← 双击这个
+part-info.txt                     ← 中文说明 + 校验和（可选）
+```
+
+1. 五个文件放进**同一个文件夹**
+2. 双击 **`merge-parts.bat`** → 合成出 `Vesper-portable.zip`
+   （不用装任何东西，用的是 Windows 自带的命令；它会打印 SHA256 让你核对）
+3. 解压它 → 双击里面的 **`start-portable.bat`** → 浏览器自动打开
+
+> **为什么切成三片**：整包 122 MB，超过 GitHub 单文件 100 MB 的上限，
+> 也超过部分网盘对压缩包的分享限制。
+>
+> 嫌麻烦？源码版只要 ~3 MB，**但有 Python 才能跑**。两个版本**功能完全一样**，
+> 区别只在 Python 从哪来 —— 详见 [`便携版/两个版本有什么区别.md`](便携版/两个版本有什么区别.md)。
+
+> 源码版也可以从下载页底部的 **`Source code (zip)`** 拿（那同样是完整源码，
+> 只是 GitHub 给它的位置不起眼）。
 
 ---
 

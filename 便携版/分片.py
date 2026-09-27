@@ -35,7 +35,19 @@ import sys
 
 DEFAULT_PART_MB = 45          # 留足余量：GitHub 上限 100 MiB，一片 45MB 很安全
 MERGE_PY_NAME = "merge_parts.py"      # ⚠ 必须 ASCII —— .bat 里要**写出它的文件名**
-MERGE_BAT_NAME = "merge-parts.bat"    # ⚠ 必须 ASCII：GitHub Release 的附件名只收 ASCII，中文会被降级成 default
+MERGE_BAT_NAME = "merge-parts.bat"    # ⚠ 必须 ASCII：GitHub Release 的附件名只收 ASCII
+PART_BASE_ASCII = "Vesper-portable.zip"   # ⚠ 分片名也用纯 ASCII，理由见下
+
+# ---------------------------------------------------------------------------
+# ⚠ 为什么分片名也要是纯 ASCII（2026-09-27 实测）
+# ---------------------------------------------------------------------------
+# GitHub Release 的附件名**只收 ASCII**，非 ASCII 字符会被它删掉。而它是"能留则留"：
+#   · `合并分片.bat`        → 整串没有 ASCII 片段 → 降级成字面的 `default.bat`
+#   · `岚苔Vesper-便携版.zip.001` → 削掉中文后剩 `Vesper-.zip.001`
+#     —— 那个 `Vesper-` 尾巴看着莫名其妙（用户会问"减什么？"）
+# ⇒ 所以分片**生成时就用纯 ASCII 名**，别指望上传平台帮忙保留。
+#   注意：zip **内部**的目录名仍是 `岚苔Vesper-便携版\`（中文在 zip 里不受影响），
+#   用户解压后看到的还是那个熟悉的中文文件夹名。
 
 MERGE_BAT = r"""@echo off
 rem ===========================================================================
@@ -229,7 +241,7 @@ def sha256_of(path, limit=None):
     return h.hexdigest()
 
 
-def do_split(src, part_mb):
+def do_split(src, part_mb, base=None):
     src = os.path.abspath(src)
     if not os.path.isfile(src):
         print("[FAIL] 找不到文件：%s" % src)
@@ -239,19 +251,27 @@ def do_split(src, part_mb):
     n = (size + part - 1) // part
     out_dir = os.path.dirname(src)
     name = os.path.basename(src)
+    # ⚠ 分片名用**纯 ASCII**（默认 Vesper-portable.zip），不跟着源文件名走 ——
+    #   源文件叫「岚苔Vesper-便携版.zip」，中文在 GitHub Release 上会被削掉，
+    #   剩下 `Vesper-.zip.001` 这种莫名其妙的尾巴（实测过）。
+    base = (base or PART_BASE_ASCII).strip()
 
-    # 先清掉旧分片，免得新旧混在一起被合并成错的
-    for old in sorted(os.listdir(out_dir)):
-        if old.startswith(name + ".") and old[-3:].isdigit():
-            os.remove(os.path.join(out_dir, old))
+    # 先清掉旧分片（可能来自旧命名，也可能名字不同），免得混在一起被合并成错的
+    import glob as _glob
+    for old in _glob.glob(os.path.join(out_dir, "*.zip.0[0-9][0-9]")):
+        try:
+            os.remove(old)
+        except OSError:
+            pass
 
     print("源文件：%s（%.1f MB）" % (name, size / 1048576.0))
+    print("分片名前缀：%s（纯 ASCII，避免上传平台削中文）" % base)
     print("切成 %d 片，每片 %.0f MB" % (n, part_mb))
     h = hashlib.sha256()
     written = 0
     with open(src, "rb") as f:
         for i in range(1, n + 1):
-            p = os.path.join(out_dir, "%s.%03d" % (name, i))
+            p = os.path.join(out_dir, "%s.%03d" % (base, i))
             got = 0
             with open(p, "wb") as w:
                 while got < part:
@@ -312,12 +332,14 @@ def main():
     ap = argparse.ArgumentParser(description="便携版 zip 的分片工具")
     ap.add_argument("action", choices=["split", "join"])
     ap.add_argument("target", help="split: 源 zip；join: 第一个分片(.001)")
+    ap.add_argument("--base", default=PART_BASE_ASCII,
+                    help="分片名前缀（默认 %s）。**用纯 ASCII** —— 上传平台的附件名会削中文" % PART_BASE_ASCII)
     ap.add_argument("--part-mb", type=float, default=DEFAULT_PART_MB,
                     help="每片多少 MB（默认 %.0f；GitHub 上限 100 MiB，建议别超过 90）"
                          % DEFAULT_PART_MB)
     args = ap.parse_args()
     if args.action == "split":
-        return do_split(args.target, args.part_mb)
+        return do_split(args.target, args.part_mb, args.base)
     return do_join(args.target)
 
 
