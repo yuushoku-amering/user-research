@@ -629,6 +629,39 @@ function curProject() {
 
 /* ---------------- 渲染：左侧流程 ---------------- */
 
+/* 左侧栏的图标：一律用线性 SVG。
+   为什么换掉 emoji：原来 ⓪①② 是数字、③④⑥ 是 emoji、🔒 又是另一个体系，
+   三种风格挤在一列 22px 的格子里 → 看着毛毛的。
+   统一成同一套描边图标之后，左栏才像一条"流程"而不是一串标签。
+   ⚠ 按 b.id 映射，不认得的组块**退回显示编号文字**（.ic-txt）——加新组块不会变成空白。 */
+const RAIL_ICONS = {
+  b0_brief: '<path d="M5 2.4h6.2l3.4 3.4v11.8H5z"/><path d="M11.2 2.4v3.4h3.4"/>'
+          + '<path d="M7.4 11.6h5M7.4 14.2h3.2"/>',
+  b1_guide: '<path d="M3.6 4.2A1.8 1.8 0 0 1 5.4 2.4h9A1.8 1.8 0 0 1 16.2 4.2v7.4a1.8 1.8 0 0 1-1.8 1.8H8.2L4.8 16.4v-3H5.4A1.8 1.8 0 0 1 3.6 11.6z"/>'
+          + '<path d="M7.6 6.6h5M7.6 9.2h3.2"/>',
+  b2_coding: '<path d="M3.4 10.4V4.2a1.2 1.2 0 0 1 1.2-1.2h6.2l5.8 5.8v7.4a1.2 1.2 0 0 1-1.2 1.2H7.6"/>'
+          + '<circle cx="6" cy="13.6" r="2.6"/>',
+  b2b_codesum: '<path d="M4 16V4.6M4 16h12"/><path d="M7.4 13.6V9.8M10.6 13.6V6.8M13.8 13.6v-2.4"/>',
+  b3_survey_design: '<rect x="4.6" y="3.2" width="10.8" height="14" rx="1.4"/>'
+          + '<path d="M7.6 7h4.8M7.6 10h4.8M7.6 13h3"/>',
+  b3_survey: '<rect x="3.2" y="3.2" width="13.6" height="13.6" rx="2"/>'
+          + '<path d="M6.8 8h6.4M6.8 11h6.4M6.8 14h3.6"/>',
+  b4_prep: '<path d="M3.6 4.6h12.8l-5 5.6v5.2l-2.8 1.6v-6.8z"/>',
+  b5_stats: '<path d="M4.4 16.4V9.8M10 16.4V4.6M15.6 16.4v-4.6"/><path d="M3.2 16.4h13.6"/>',
+  b9_deident: '<rect x="4.2" y="8.6" width="11.6" height="8.2" rx="1.6"/>'
+          + '<path d="M6.8 8.6V6.4a3.2 3.2 0 0 1 6.4 0v2.2"/><path d="M10 11.8v2.6"/>'
+};
+function railIcon(b){
+  const paths = RAIL_ICONS[b.id];
+  if (paths){
+    return '<span class="ic" title="' + esc(b.name || '') + '">'
+         + '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"'
+         + ' stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg></span>';
+  }
+  // 没配图标的组块：显示后端给的编号（⓪①🔒 都行），不显示成空白
+  return '<span class="ic"><b class="ic-txt">' + esc(b.num || '•') + '</b></span>';
+}
+
 // 左侧栏那条列表的 HTML —— 单独拎出来，好让测试直接断言生成的结果
 function railHtml(blocks, status, groups) {
   const st = status || {};
@@ -643,10 +676,12 @@ function railHtml(blocks, status, groups) {
     const tip = stale
       ? `产物比上游旧了（${s.stale_why || '上游有更新'}）—— 建议重跑一遍`
       : (done ? '已完成' : '还没跑');
-    // 数字位放编号（① ②b 🔒），emoji 放图标位 —— 编号是顺序，emoji 是这个组块长什么样
+    // 图标位统一走 railIcon（线性 SVG）；名字里**不再重复铺那个 emoji** ——
+    // 图标已经把身份说清楚了，再来一个 emoji 就是同一句话说两遍。
+    const nm = b.name || b.icon || b.num || '';
     return `<div class="rail-item ${b.id === S.blockId ? 'active' : ''}" data-id="${esc(b.id)}">
-      <span class="ic">${esc(b.num || b.icon || '•')}</span>
-      <span class="nm">${esc(b.icon && b.num ? b.icon + ' ' + b.name : b.name)}</span>
+      ${railIcon(b)}
+      <span class="nm" title="${esc(nm)}">${esc(nm)}</span>
       ${stale ? '<span class="staletag" title="' + esc(tip) + '">过期</span>' : ''}
       <span class="${cls}" title="${esc(tip)}"></span></div>`;
   };
@@ -4401,6 +4436,54 @@ $('#fileImport').onchange = (e) => {
   e.target.value = '';
   if (f) importProject(f);
 };
+
+/* ---------------- 主题：浅色 / 深色 ----------------
+   初值由 index.html 里那段内联脚本落好（它在样式表之前跑，免得白闪）。
+   这里只管「点一下切过去 + 记住选择」。没点过 = 跟随系统。
+
+   ⚠ 两套都要有：内联那段是**唯一**能在样式表之前跑的地方（防白闪），
+     而它没法测；这里这份是能被 `_uitest.js` 直接调的正式实现。 */
+// 读「人自己选过吗」（null = 没选过 → 跟随系统）。localStorage 在无痕模式会抛，一律当"没选过"
+function readSavedTheme(dep){
+  const ls = (dep && dep.storage) || (typeof localStorage !== 'undefined' ? localStorage : null);
+  try { return ls ? ls.getItem('urw.theme') : null; } catch (e) { return null; }
+}
+// 系统现在是不是深色
+function systemPrefersDark(dep){
+  try {
+    if (dep && typeof dep.systemDark === 'boolean') return dep.systemDark;
+    return !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+  } catch (e) { return false; }
+}
+// 初值：人选的 > 系统。返回定下来的那个（纯函数，测试直接调它）
+function initializeTheme(dep){
+  const saved = readSavedTheme(dep);
+  const t = (saved === 'dark' || saved === 'light') ? saved : (systemPrefersDark(dep) ? 'dark' : 'light');
+  applyTheme(t);
+  return t;
+}
+function applyTheme(t){
+  const root = document.documentElement;
+  // ⚠ `_uitest.js` 里搭的是**假 DOM**，没有 documentElement —— 少这一道判断，
+  //   整个前端回归会在加载 app.js 的那一步就死掉（而且报错看着跟主题毫无关系）。
+  if (!root || typeof root.setAttribute !== 'function') return;
+  root.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
+  const b = $('#btnTheme');
+  if (b) b.title = '切换浅色 / 深色（现在是' + (t === 'dark' ? '深色' : '浅色') + '）';
+}
+function toggleTheme(){
+  const root = document.documentElement;
+  const now = (root && root.getAttribute && root.getAttribute('data-theme') === 'dark') ? 'dark' : 'light';
+  const next = now === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  // 点了就算"人自己选的"：从此不再跟随系统（不然人刚切完，系统一变又被掰回去）
+  try { localStorage.setItem('urw.theme', next); } catch (e) { /* 无痕模式：这次有效，下次忘了 */ }
+}
+{
+  const tb = $('#btnTheme');
+  if (tb) tb.onclick = toggleTheme;
+  initializeTheme();
+}
 
 /* ---------------- 起步 ---------------- */
 

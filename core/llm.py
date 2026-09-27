@@ -114,6 +114,7 @@ def _build_prompt_file(block, params, project_root):
     labels = {f.get("key"): f.get("label", f.get("key")) for f in (block.get("form") or [])}
 
     L = []
+    # ⚠ 任务书抬头同样保持「用户研究工作台」（理由见 core/report.py 那处注释）
     L.append("# 任务书（由用户研究工作台自动生成）\n")
     L.append("## 【任务】\n")
     L.append(spec.get("prompt", "").strip())

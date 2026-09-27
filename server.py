@@ -1375,7 +1375,7 @@ def main(argv):
     url = "http://127.0.0.1:%d/" % port
     proj = current_project(cfg)
     print("=" * 62)
-    print("  🐟 用户研究工作台")
+    print("  🐟 岚苔 Vesper · 用户研究工作台")
     print("  界面：  %s" % url)
     # 没选项目是**合法状态**（界面显示空栏），别在这里崩，也别拿项目之家冒充
     print("  项目：  %s" % (proj.root if proj is not None else "（还没选——在界面上「新建」或「打开…」）"))

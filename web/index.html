@@ -1,15 +1,38 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>用户研究工作台</title>
+<title>岚苔 Vesper · 用户研究工作台</title>
 <link rel="stylesheet" href="/web/style.css">
+<script>
+/* 主题：在**样式表生效前**就把 data-theme 落下去，免得深色用户先看到一道白闪。
+   优先级：本地存过的选择 > 系统设置。③ 处（app.js）负责切换与保存。 */
+(function(){
+  var t = null;
+  try { t = localStorage.getItem('urw.theme'); } catch (e) { /* 无痕模式：跳过 */ }
+  if (t !== 'light' && t !== 'dark') {
+    t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  document.documentElement.setAttribute('data-theme', t);
+  // 没存过选择时，跟着系统走（系统切了颜色，页面跟着切）
+  try {
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e){
+      var saved = null;
+      try { saved = localStorage.getItem('urw.theme'); } catch (err) {}
+      if (saved === 'light' || saved === 'dark') return;   // 人自己选过就别动它
+      document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+    });
+  } catch (e) { /* 老浏览器不支持 addEventListener 形式就算了 */ }
+})();
+</script>
 </head>
 <body>
 
 <header class="topbar">
-  <div class="brand"><span class="fish">🐟</span> 用户研究工作台</div>
+  <!-- 名字（2026-09-27 前辈定的）：岚苔 Vesper。
+       顶栏窄的时候会截断成「岚苔 Ve…」，悬停能看到全名 —— 所以 title 必须有。 -->
+  <div class="brand" title="岚苔 Vesper —— 用户研究工作台"><span class="fish">🐟</span> 岚苔 Vesper</div>
 
   <div class="proj">
     <label>项目</label>
@@ -23,6 +46,20 @@
   </div>
 
   <div class="env" id="env"></div>
+
+  <!-- 主题开关：首次进来跟随系统，点一下就固定成人自己的选择 -->
+  <button class="themebtn" id="btnTheme" title="切换浅色 / 深色（默认跟随系统）" aria-label="切换深浅色">
+    <svg class="i-moon" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+      <path d="M16.5 12.4A6.8 6.8 0 0 1 7.6 3.5a6.9 6.9 0 1 0 8.9 8.9Z"
+            fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <svg class="i-sun" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+      <circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <path d="M10 2v1.6M10 16.4V18M18 10h-1.6M3.6 10H2M15.7 4.3l-1.1 1.1M5.4 14.6l-1.1 1.1M15.7 15.7l-1.1-1.1M5.4 5.4 4.3 4.3"
+            fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+  </button>
 </header>
 
 <div class="layout">

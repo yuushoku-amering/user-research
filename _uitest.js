@@ -18,12 +18,41 @@ function mkEl(id) {
 }
 const els = {};
 globalThis.document = {
-  querySelector(sel) { if (!els[sel]) els[sel] = mkEl(sel); return els[sel]; },
+  /* ⚠ 选择器可能是**字符串**，也可能是 app.js 里 `$('#x')` 那样传进来的元素 ——
+     统一成字符串键。不改的话 `els[sel]` 拿到 "[object Object]"，
+     后面的断言会看着像"代码没生效"，其实是桩子的锅。 */
+  querySelector(sel) {
+    const k = String(sel);
+    if (!els[k]) els[k] = mkEl(k);
+    return els[k];
+  },
   getElementById(id) { if (!els['#' + id]) els['#' + id] = mkEl('#' + id); return els['#' + id]; },
   querySelectorAll() { return []; },
   execCommand() { return true; },
   addEventListener() {},
   createElement() { return mkEl('new'); },
+  /* <html> 元素：主题（data-theme）就挂在它身上。
+     初值给 "light" —— 跟真页面一致（index.html 里写死的），
+     这样 initializeTheme() 在"没存过选择"时会落到 light，和真人首次打开一样。 */
+  documentElement: (() => {
+    const attrs = { 'data-theme': 'light' };
+    return {
+      getAttribute: n => (n in attrs ? attrs[n] : null),
+      setAttribute: (n, v) => { attrs[n] = String(v); },
+      removeAttribute: n => { delete attrs[n]; },
+      _attrs: attrs,
+    };
+  })(),
+};
+// 主题初始化会查系统偏好；无头环境给 false（= 系统是浅色）
+globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
+// localStorage 桩：无痕模式下真浏览器会**抛**，所以这里也要能模拟"抛"（测兜底）
+globalThis.localStorage = {
+  _d: {},
+  getItem(k) { return Object.prototype.hasOwnProperty.call(this._d, k) ? this._d[k] : null; },
+  setItem(k, v) { this._d[k] = String(v); },
+  removeItem(k) { delete this._d[k]; },
+  _throw: false,
 };
 globalThis.window = globalThis;
 globalThis.alert = (m) => { throw new Error('不该弹窗：' + m); };
@@ -87,6 +116,8 @@ const wrapped = src + `
 ;globalThis.__T = { S, switchBlock, switchProject, loadState, clearProjectState, colsKey, currentBlock,
   findUnconfirmed, scanBlockUnconfirmed, cfReplace, cfApply, cfUndo, cfRefresh, openConfirm, closeConfirm,
   fmtBytes, openSaveProject, railHtml, showSensitiveGuard,
+  // 主题：初值判定 / 切换 / 落下去（见 【34】）
+  applyTheme, toggleTheme, initializeTheme, readSavedTheme, systemPrefersDark,
   // 变量表：渲染 / 提交序列化 / 单元格校验 / 加删行 / 自动读回
   varTableHtml, collectForm, varCellBad, varRowBad, varRowsOf, varRowsFilled, varTableSet,
   varTableAddRow, varTableDelRow, varTableMaybeAutoPull, varTableText, cfApply, cfReplace,
@@ -294,8 +325,17 @@ const tick = () => new Promise(r => setImmediate(r));
   ok(rail.indexOf('入口 / 横切') < rail.indexOf('量化线'), '入口组排在量化组前面');
   ok(rail.indexOf('1/1') >= 0 && rail.indexOf('0/1') >= 0, '每组带「完成数/总数」');
   eq((rail.match(/rail-item/g) || []).length, 2, '两个组块各成一条（没有重复渲染）');
-  ok(rail.indexOf('>⓪<') >= 0 || rail.indexOf('⓪</span>') >= 0, '数字位放的是编号（⓪）');
-  ok(rail.indexOf('🎯') >= 0, 'emoji 图标也还在（编号和图标是两回事）');
+  // 2026-09-27 UI 改版：图标位从「数字 + emoji 混排」换成统一的线性 SVG。
+  //   这一条守两件事：① 认得的组块画 SVG（不是空白）② **没人认领的组块退回编号文字**
+  //   —— 加新组块时如果忘了配图标，左栏会退回显示 ⓪ 而不是留一块空的。
+  ok(rail.indexOf('viewBox="0 0 20 20"') >= 0, '图标换成了统一的线性 SVG（不再是数字/emoji 混排）');
+  ok(!/class="ic"[^>]*>⓪/.test(rail), '配了图标的组块不再把编号推进图标位');
+  const noIcon = T4.railHtml([{ id: 'bX_unknown', num: '⑦', name: '新组块', group: 'quant' }], {}, []);
+  ok(noIcon.indexOf('ic-txt') >= 0 && noIcon.indexOf('⑦') >= 0,
+     '没配图标的组块退回显示编号（不留空白）');
+  // 名字里不再重复铺 emoji：图标已经把身份说清楚了，再来一个就是同一句话说两遍。
+  ok(rail.indexOf('🎯 研究设计') < 0, '名字里不再重复那个 emoji（图标位已经说了）');
+  ok(rail.indexOf('研究设计') >= 0, '名字本身照常显示');
   const flat = T4.railHtml(blocks, {}, null);
   eq((flat.match(/rail-grp/g) || []).length, 0, '后端没给分组信息时退回平铺（不炸）');
   eq((flat.match(/rail-item/g) || []).length, 2, '平铺时组块也都在');
@@ -1421,6 +1461,55 @@ const tick = () => new Promise(r => setImmediate(r));
   T4.renderStage();
   const st33c = String((globalThis.document.querySelector('#stage') || {}).innerHTML || '');
   ok(st33c.indexOf('formResetBtn') < 0, '没有未保存改动时**不摆**这个按钮');
+
+  console.log('\n【34】浅色 / 深色主题');
+  // 为什么单独测：主题有三件容易做错、而且**错了也未必立刻看得出来**的事 ——
+  //   ① 初值优先级（人选的 > 系统）  ② 切完会不会记住  ③ localStorage 抛错时会不会连页面都白
+  const de = globalThis.document.documentElement;
+  const themeNow = () => de.getAttribute('data-theme');
+
+  // ① 没存过选择 → 跟随系统
+  localStorage._d = {};
+  eq(T4.initializeTheme({ systemDark: true }), 'dark', '没存过选择时，跟随系统（系统深色 → 深色）');
+  eq(themeNow(), 'dark', '而且真的落到 <html data-theme> 上了（不然样式表不认）');
+  eq(T4.initializeTheme({ systemDark: false }), 'light', '系统浅色 → 浅色');
+
+  // ② 人自己选过 → 系统说什么都不算
+  localStorage._d = { 'urw.theme': 'dark' };
+  eq(T4.initializeTheme({ systemDark: false }), 'dark', '人选过深色，系统是浅色也照样深色');
+  localStorage._d = { 'urw.theme': 'light' };
+  eq(T4.initializeTheme({ systemDark: true }), 'light', '人选过浅色，系统是深色也照样浅色');
+  // 存了个乱七八糟的值 → 当作没存过（不能让一个坏值把页面搞成没有主题）
+  localStorage._d = { 'urw.theme': '紫色' };
+  eq(T4.initializeTheme({ systemDark: true }), 'dark', '存了个不认识的值 → 当没存过，退回跟随系统');
+
+  // ③ 切换：改页面 + 记住
+  localStorage._d = {};
+  T4.applyTheme('dark');
+  T4.toggleTheme();
+  eq(themeNow(), 'light', '深色下点一下 → 切到浅色');
+  eq(localStorage.getItem('urw.theme'), 'light', '而且把选择记住了（不是只改这一次）');
+  T4.toggleTheme();
+  eq(themeNow(), 'dark', '再点一下 → 回到深色');
+  eq(localStorage.getItem('urw.theme'), 'dark', '选择跟着更新');
+
+  // ④ 无痕模式 / 存储被禁：localStorage 会**抛**，页面不能因此崩掉
+  const realLS = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem() { throw new Error('SecurityError: 存储被禁用'); },
+    setItem() { throw new Error('SecurityError: 存储被禁用'); },
+  };
+  eq(T4.readSavedTheme(), null, 'localStorage 抛错时当作"没存过"（不往外抛）');
+  let themeThrew = null;
+  try { T4.toggleTheme(); } catch (e) { themeThrew = e; }
+  ok(themeThrew === null, '存储被禁用时，切换主题也不会抛错把页面打死');
+  globalThis.localStorage = realLS;
+
+  // ⑤ 按钮真的挂上了（画了按钮却没绑事件 = 点了没反应，这个坑踩过）
+  const tbEl = globalThis.document.querySelector('#btnTheme');
+  ok(typeof tbEl.onclick === 'function', '顶栏那个主题按钮挂上了点击处理');
+  ok(String(tbEl.title || '').indexOf('深色') >= 0 || String(tbEl.title || '').indexOf('浅色') >= 0,
+     '按钮的提示里写着当前是深还是浅');
 
   console.log('\n' + (fail === 0 ? '全部通过' : '有失败项') + '：' + pass + ' 通过 / ' + fail + ' 失败\n');
   process.exit(fail === 0 ? 0 : 1);
