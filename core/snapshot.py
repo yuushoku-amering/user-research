@@ -23,6 +23,10 @@ import zipfile
 EXT = ".urwproj"
 MANIFEST = "快照信息.json"
 SKIP_DIRS = {"__pycache__", ".git", ".idea", ".vscode", "__MACOSX"}
+# ⚠ 快照的"格式名"：这里**保留**「用户研究工作台」，不跟着界面换成「岚苔 Vesper」
+#   （2026-09-27 前辈拍板：产出里的落款保持中性）。
+#   安全性：`FMT` 只在**导出**时写进 快照信息.json，导入时不做校验，所以改名也不影响读旧快照；
+#   而 `_snapshottest.py` 的断言是 `.endswith("项目快照")` —— 只要尾巴是「项目快照」就仍然过。
 FMT = "用户研究工作台 · 项目快照"
 
 

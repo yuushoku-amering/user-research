@@ -502,7 +502,7 @@ def ending():
 def main():
     t0 = time.time()
     print("")
-    print("  用户研究工作台 · 演示")
+    print("  岚苔 Vesper · 用户研究工作台 · 演示")
     print("  你会看到：一份问卷 → 预处理 → 统计 → 结论，全程都是真算的。")
     print("  （机器跑只要几秒；下面这些内容是留给你看的。）")
     print("")

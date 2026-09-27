@@ -2660,6 +2660,8 @@ def _build_sps(df, csv_abs, cmds, how, alpha, prelude=None):
     L.append("SET MPRINT=OFF.")
 
     L.append("* " + "=" * 68)
+    # ⚠ SPSS 语法里的署名叫「用户研究工作台」（不是界面上的「岚苔 Vesper」）——
+    #   这条语法是给导师/合作者看的，工具名保持中性。2026-09-27 前辈拍板。
     L.append("* 用户研究工作台 · 自动生成的 SPSS 语法（复核用）")
     L.append("* 生成时间：" + time.strftime("%Y-%m-%d %H:%M"))
     L.append("* 数据文件：" + csv_abs)
