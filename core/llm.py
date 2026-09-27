@@ -79,7 +79,7 @@ def find_dsh_bin():
 
 
 def read_key():
-    """从前辈的凭据文件里取 DEEPSEEK_API_KEY。
+    """从作者的凭据文件里取 DEEPSEEK_API_KEY。
 
     **只读、不复制、不打印、不外传。** 环境变量优先（和 dsh-credentials-local 的层叠顺序一致）。
     """
@@ -437,7 +437,7 @@ def _run_headless(task, cfg, timeout):
         raise RuntimeError("没找到 DEEPSEEK_API_KEY（看 ~/.dsh/.credentials.yaml）")
 
     env = dict(os.environ)
-    env["DSH_HOME"] = home                    # 独立 home：会话不会进前辈的列表
+    env["DSH_HOME"] = home                    # 独立 home：会话不会进作者的列表
     env["DSH_SHELL"] = ""
     env["DEEPSEEK_API_KEY"] = key
     env["PYTHONIOENCODING"] = "utf-8"

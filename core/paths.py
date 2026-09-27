@@ -42,7 +42,7 @@ DEFAULT_CONFIG = {
     "spss_exe": "",
     "llm": {
         "enabled": False,            # 模型建议通道：默认关，界面上一键开
-        "mode": "dsh-headless",      # 复用前辈的 DSH 凭据，走独立 DSH_HOME
+        "mode": "dsh-headless",      # 复用作者的 DSH 凭据，走独立 DSH_HOME
         "dsh_home": "",
         "timeout": 240,
     },

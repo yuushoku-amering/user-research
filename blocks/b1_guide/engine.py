@@ -335,7 +335,7 @@ def run(ctx):
         L.append("> 依据：`%s`" % brief_rel)
     else:
         L.append("> 依据：**没读到研究简报** —— 这份提纲只有通用骨架")
-    # ⚠ 落款保持「用户研究工作台」（不是界面上的「岚苔 Vesper」）—— 2026-09-27 前辈拍板
+    # ⚠ 落款保持「用户研究工作台」（不是界面上的「岚苔 Vesper」）—— 2026-09-27 这里刻意如此
     L.append("> 生成时间：%s（用户研究工作台）\n" % time.strftime("%Y-%m-%d %H:%M"))
 
     if info["purpose"]:

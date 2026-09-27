@@ -416,7 +416,7 @@ const REG = {
     'p-sig=' + pText(wrap));
   eq(rowKeys(wrap, 0), before, '顺序没被动过');
   eq(wrap.querySelectorAll('button[data-tblalpha]').length, 3, '换阈值后按钮还在');
-  // ↓↓↓ 前辈踩到的那个 bug：改过一次阈值，第二次就点不动了
+  // ↓↓↓ 踩到的那个 bug：改过一次阈值，第二次就点不动了
   ok(click(btnOf(wrap, 0.1)), '关键：改过一次阈值，第二次还能改');
   eq(T.S.tblAlpha[REG.id], 0.1, '第二次也生效（阈值记成 0.1）');
   ok(click(btnOf(wrap, 0.05)), '第三次照样能改');

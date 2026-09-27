@@ -325,7 +325,7 @@ class Ctx(object):
         if options:
             item["options"] = [o for o in options if isinstance(o, dict) and o.get("label")]
         # 这条提醒能不能"填进某个表单字段"？能就带上字段名，前端才摆那套替换输入框。
-        # ⚠ 无条件摆过一次，结果 ③ 的"筛选题怎么写"提醒底下跟着去标识化的填法（前辈报的）。
+        # ⚠ 无条件摆过一次，结果 ③ 的"筛选题怎么写"提醒底下跟着去标识化的填法（作者报的）。
         if getattr(self, "rules_field", ""):
             item["rules_field"] = self.rules_field
         self._alerts.append(item)
