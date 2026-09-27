@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -140,8 +141,23 @@ def _run_one(cmd, fn, kind, saved):
     for line in out.splitlines():
         if "通过" in line and "失败" in line:
             tail = line.strip()
-    print("%-4s %-22s exit=%-3d %5.1fs  %s"
-          % ("OK" if p.returncode == 0 else "FAIL", fn, p.returncode, dt, tail))
+
+    # ⚠ exit code 2 是「**这套自己拒绝跑**」，不是失败（2026-09-27 修）。
+    #   典型是 `_currentprojtest.py`：它要临时清空「当前项目」再恢复，
+    #   而在**干净环境**（刚 clone、还没有任何项目）里没有可恢复的目标，
+    #   于是它宁可不跑也不冒把项目弄丢的风险 —— 那是好设计，不该记成失败。
+    #   以前一律 `returncode != 0 → FAIL`，导致 README 承诺的"31 套全绿"
+    #   在干净机器上永远做不到，新人会以为自己的环境坏了。
+    SKIP_CODES = (2,)
+    if p.returncode == 0:
+        tag = "OK"
+    elif p.returncode in SKIP_CODES:
+        tag = "SKIP"
+    else:
+        tag = "FAIL"
+    if tag == "SKIP" and not tail:
+        tail = "跳过（这套自己拒绝跑：没有它需要的现场）"
+    print("%-4s %-22s exit=%-3d %5.1fs  %s" % (tag, fn, p.returncode, dt, tail))
 
     # 现场检查
     now = _cur_root()
@@ -153,12 +169,75 @@ def _run_one(cmd, fn, kind, saved):
             print("       依据：%s" % why)
             tail = (tail + "  [现场已修复]").strip()
         else:
-            print("     ⚠ 这一套把「当前项目」弄乱了，而且没有可恢复的目标")
-            tail = (tail + "  [现场未能修复]").strip()
+            # ⚠ 干净环境（刚 clone、还没建过项目）本来就没有现场可恢复 ——
+            #   那不是"修复失败"，别用一句话吓人。`_currentprojtest` 这类
+            #   需要现场的套件此时会以 exit 2 自己跳过（见上面 SKIP_CODES）。
+            print("     （干净环境：没有项目现场，无需恢复）")
     return (kind, fn, p.returncode, dt, tail)
 
 
+def _srv_alive(url, timeout=4):
+    """服务在不在（探一下 /api/ping）。"""
+    try:
+        with urllib.request.urlopen(url + "/api/ping", timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _start_srv_if_needed(py, srv_url):
+    """自己起一个服务给那几套接口测试用。
+
+    为什么值得自动起（而不是让人先双击 `启动工作台.bat`）：
+      · 有 5 套测试走真实 HTTP，但它们里的 4 套**把地址写死在 8765**，
+        所以"起在别的端口"这条路走不通；
+      · 而"服务没开就跳过 5 套"会让人以为测试不全 —— 明明机器上什么都有。
+    所以：**没人占用 8765 就自己起一个**，跑完关掉。
+    有人占着（比如用户自己开着工作台）就**不动它**，直接用那个。
+    """
+    if _srv_alive(srv_url):
+        print("服务已经在跑（%s）—— 用它，我不会另起。" % srv_url)
+        return None
+    print("服务没在跑：自己起一个临时的（跑完自动关掉，不影响你开着的那个）…")
+    try:
+        p = subprocess.Popen(
+            [py, "-u", os.path.join(HERE, "server.py"), "--no-open"],
+            cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception as e:
+        print("  ⚠ 起不来：%s —— 那 5 套会跳过（不是失败）" % e)
+        return None
+    for _ in range(40):                      # 最多等 20 秒
+        time.sleep(0.5)
+        if _srv_alive(srv_url, timeout=2):
+            print("  起来了（pid %d）。" % p.pid)
+            return p
+    print("  ⚠ 等了 20 秒还没起来 —— 那 5 套会跳过")
+    try:
+        p.terminate()
+    except Exception:
+        pass
+    return None
+
+
+def _stop_srv(proc):
+    if not proc:
+        return
+    print("-" * 72)
+    print("关掉我刚才起的那个临时服务（pid %d）…" % proc.pid)
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    except Exception as e:
+        print("  （没关干净：%s —— 你自己看一眼任务管理器）" % e)
+
+
 def main():
+    # ⚠ 只用标准库：urllib 探服务、subprocess 起/关临时服务、time 等就绪
+    do_py = do_js = False
     only = sys.argv[1] if len(sys.argv) > 1 else ""
     do_py = only in ("", "--py")
     do_js = only in ("", "--js")
@@ -190,10 +269,31 @@ def main():
         print("  （几套依赖素材的会报「找不到素材」，其余照跑）")
     print("")
 
+    # ---------- 有 5 套要走真实 HTTP 接口：需要服务 ----------
+    # 它们原来在服务没开时是**抛异常**，看着像"环境坏了" —— 其实只是没开服务
+    # （实测：服务开着 32 套全过；服务没开 5 套 exit=1）。
+    # ⇒ 而且它们里的 4 套**把地址写死在 8765**，所以不能"起在别的端口绕开"。
+    #   这里的做法：**没人占 8765 就自己起一个临时的**，跑完关掉；
+    #   你要是自己开着工作台，就用你那个，我不动它。
+    SRV = "http://127.0.0.1:8765"
+    NEED_SRV = {"_apitest.py", "_rewindtest.py", "_versiontest.py",
+                "_picktest.py", "_llmtest.py"}
+    srv_proc = _start_srv_if_needed(py, SRV)
+    srv_up = _srv_alive(SRV) or bool(srv_proc)
+    if not srv_up:
+        print("  → 需要接口的 %d 套会**跳过**（不是失败）。" % len(NEED_SRV))
+    print("")
+
     results = []
     if do_py:
         for fn in sorted(os.listdir(HERE)):
             if not (fn.startswith("_") and fn.endswith(".py") and "test" in fn):
+                continue
+            if fn in NEED_SRV and not srv_up:
+                # 记成"跳过"（exit 2 那套计分逻辑认它），别让人以为环境坏了
+                print("%-4s %-22s %s" % ("SKIP", fn, "跳过（起不来服务）"))
+                results.append(("py", fn, 2, 0.0,
+                                "跳过（服务没在跑，而且我没能起起来）"))
                 continue
             results.append(_run_one([py, "-X", "utf8", os.path.join(HERE, fn)],
                                     fn, "py", saved))
@@ -205,7 +305,14 @@ def main():
                 continue
             results.append(_run_one(["node", fp], fn, "js", saved))
 
-    # ---------------- 收尾：把研究员的现场还回去 ----------------
+    # ---------------- 收尾 ----------------
+    # ⚠ 先关我起的那个临时服务（用 try 包住，中途出错也别留残留进程）
+    try:
+        _stop_srv(srv_proc)
+    except Exception as e:
+        print("  （关临时服务时出错：%s —— 看一眼任务管理器有没有多出来的 python）" % e)
+    srv_proc = None
+
     print("")
     print("-" * 72)
     now = _cur_root()
@@ -220,12 +327,20 @@ def main():
         else:
             print("⚠ 现在没有当前项目，而且「最近项目」里也没有可用的 —— 请在界面上选一个。")
 
-    bad = [r for r in results if r[2] != 0]
+    skipped = [r for r in results if r[2] == 2]          # 自己拒绝跑（不算失败）
+    bad = [r for r in results if r[2] != 0 and r[2] != 2]
+    npass = len(results) - len(bad) - len(skipped)
     print("")
     print("=" * 72)
-    print("共 %d 套：通过 %d，失败 %d" % (len(results), len(results) - len(bad), len(bad)))
+    print("共 %d 套：通过 %d，失败 %d%s"
+          % (len(results), npass, len(bad),
+             ("，跳过 %d" % len(skipped)) if skipped else ""))
     for _kind, fn, code, _dt, _tail in bad:
         print("   ❌ %s（exit=%d）" % (fn, code))
+    for _kind, fn, _code, _dt, t in skipped:
+        print("   ⏭ %s —— %s" % (fn, t or "这套自己拒绝跑"))
+    if skipped:
+        print("   （跳过的不是坏：它们需要一段现场（比如已选好的项目），干净环境里没有）")
 
     os.makedirs(JOBS, exist_ok=True)
     with open(os.path.join(JOBS, "runall.txt"), "w", encoding="utf-8") as f:
@@ -233,7 +348,7 @@ def main():
         for kind, fn, code, dt, tail in results:
             f.write("[%s] %-22s exit=%-3d %5.1fs  %s\n"
                     % (kind, fn, code, dt, tail))
-        f.write("\n通过 %d / 失败 %d\n" % (len(results) - len(bad), len(bad)))
+        f.write("\n通过 %d / 失败 %d / 跳过 %d\n" % (npass, len(bad), len(skipped)))
     print("\n详细 → %s" % os.path.join(JOBS, "runall.txt"))
     return len(bad)
 

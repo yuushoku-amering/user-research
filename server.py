@@ -1461,7 +1461,49 @@ def free_port(start):
 def main(argv):
     paths.ensure_dirs()
     cfg = paths.load_config()
+
+    # ⚠ 以前这里**完全忽略命令行参数**（端口只从 config.json 读）。
+    #   后果：`python server.py --port 8799` 会**静默**去听 8765 ——
+    #   排查时探测 8799 一直连不上，会误判成"服务起不来"。
+    #   静默忽略参数属于"看着生效了、其实没有"那一类坑，所以现在：
+    #     · `--port N` 真的生效（临时覆盖 config，不写回文件）
+    #     · 不认识的参数**明确报错退出**，别假装没看见
     want = int(cfg.get("port") or 8765)
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--port":
+            if i + 1 >= len(argv):
+                print("[x] --port 后面要跟端口号，例如： --port 8799")
+                return 2
+            try:
+                want = int(argv[i + 1])
+            except ValueError:
+                print("[x] --port 后面要是数字，收到的是 %r" % argv[i + 1])
+                return 2
+            i += 2
+            continue
+        if a.startswith("--port="):
+            try:
+                want = int(a.split("=", 1)[1])
+            except ValueError:
+                print("[x] --port= 后面要是数字，收到的是 %r" % a)
+                return 2
+            i += 1
+            continue
+        if a == "--no-open":
+            i += 1
+            continue
+        if a in ("-h", "--help"):
+            print("用法： python server.py [--port N] [--no-open]")
+            print("  --port N    换一个端口（默认取 config.json 里的 port，通常是 8765）")
+            print("  --no-open   不要自动打开浏览器")
+            return 0
+        print("[x] 不认识的参数：%r" % a)
+        print("    用法： python server.py [--port N] [--no-open]")
+        print("    （以前这里会**默默忽略**，于是你以为换了端口、其实没有。）")
+        return 2
+
     port = free_port(want)
     if port != want:
         # ⚠ 踩过的坑：曾经有个旧的 server 还占着 8765，新起的这个静默换到了 8766，
@@ -1503,4 +1545,6 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    # ⚠ 要把 main 的返回值当退出码用：参数写错时 `main` 返回 2，
+    #   以前这里不接返回值 → 进程照样退 0，脚本/自检就看不出"没起来"。
+    sys.exit(main(sys.argv[1:]))
