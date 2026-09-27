@@ -75,17 +75,84 @@ def save_config(cfg):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 
+def resolve_python_path(p):
+    """把配置里的 `python` 变成一个能 `os.path.exists` 的路径。
+
+    ⚠ **相对路径按 `WORKBENCH` 目录解析，不是按当前工作目录**（2026-09-27 便携版踩的）：
+      便携包里 config.json 写的是 `..\\_python\\python.exe`（相对 workbench 的上一层），
+      而原来的 `os.path.exists(p)` 是**按进程 cwd** 算的 —— 服务从别处启动时那个相对路径
+      指向了完全不同的地方 → 判定"不存在" → **静默回退成自动探测**
+      → 用的是这台电脑上碰巧装着的另一个 Python。
+      表现：便携版跑起来了，但 `env.python` 报的是别人机器的路径（真发生过）。
+    """
+    p = (p or "").strip().strip('"')
+    if not p:
+        return ""
+    if os.path.isabs(p):
+        return p
+    return os.path.normpath(os.path.join(WORKBENCH, p))
+
+
+def bundled_python():
+    """便携版自带的那只 Python：`<发布根>\\_python\\python.exe`。
+
+    发布包会把工作台放在 `<发布根>\\岚苔Vesper\\`，Python 放在 `<发布根>\\_python\\`，
+    所以从 workbench 往上一层的 `_python` 就是它。
+    **存在就优先用它** —— 便携版的全部意义就是"不依赖用户机器上装了什么"。
+    """
+    p = os.path.normpath(os.path.join(WORKBENCH, "..", "_python", "python.exe"))
+    return p if os.path.isfile(p) else ""
+
+
 def detect_python():
     """挑一个能跑的 Python 当统计引擎。"""
+    b = bundled_python()                      # 便携版自带的排最前：它一定是对的
+    if b:
+        return b
     for p in CANDIDATE_PYTHONS:
         if os.path.exists(p):
             return p
     return sys.executable
 
 
+def can_import(module, py=None):
+    """引擎 Python 到底能不能用这个模块。
+
+    ⚠ 为什么要两个判据合起来（2026-09-27 便携版踩了两头）：
+      ① 老写法 `os.path.isdir(LIBS/openpyxl)` —— 那是"包被塞进 workbench\\libs\\"的做法。
+         便携版把整只 Python 带走、包装在 site-packages 里、**`libs/` 压根不存在**，
+         于是界面报「导入 缺包」，而它明明能 import（误报"坏"）。
+      ② 只改成"真的 import 一次" —— 反过来又会误报：本机这只嵌入式 Python
+         （GPT-SoVITS runtime）带 `python39._pth`，**它会忽略 PYTHONPATH**，
+         而 `libs/` 正是靠 PYTHONPATH 挂进去的 → 子进程看不到 libs 里的 openpyxl（误报"缺"）。
+    ⇒ **两个都算数**：谁认了就算有。
+    """
+    import subprocess
+    py = py or engine_python()
+    # 判据一：libs 目录里真有这个包（嵌入式 Python + PYTHONPATH 那条路）
+    try:
+        if os.path.isdir(os.path.join(LIBS, module)):
+            return True
+    except Exception:
+        pass
+    # 判据二：让引擎 Python 自己去 import（site-packages 那条路，便携版走这条）
+    if not py:
+        return False
+    code = ("import importlib.util,sys;"
+            "sys.exit(0 if importlib.util.find_spec(%r) else 1)" % module)
+    env = child_env()
+    try:
+        r = subprocess.run([py, "-c", code], env=env, timeout=25,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def engine_python(cfg=None):
     cfg = cfg or load_config()
-    p = cfg.get("python") or ""
+    p = resolve_python_path(cfg.get("python"))
     if p and os.path.exists(p):
         return p
     return detect_python()

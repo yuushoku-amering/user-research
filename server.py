@@ -441,9 +441,12 @@ def run_picker(kind, title, start, filt, timeout=300):
 def check_env(cfg):
     """工作台「能不能干活」的自检：引擎、依赖包、SPSS。"""
     py = paths.engine_python(cfg)
+    # ⚠ 依赖的判据是**真的 import 一次**，不是「libs 目录里有没有那个文件夹」——
+    #   便携版把整只 Python 带走，包装在 site-packages 里、根本没有 libs/，
+    #   老写法会把能用的环境报成「缺包」（见 core/paths.can_import 的注释）。
     libs_ok = {}
-    for name, sub in (("openpyxl", "openpyxl"), ("pyreadstat", "pyreadstat")):
-        libs_ok[name] = os.path.isdir(os.path.join(paths.LIBS, sub))
+    for name in ("openpyxl", "pyreadstat"):
+        libs_ok[name] = paths.can_import(name, py)
     spss = cfg.get("spss_exe") or ""
     return {
         "python": py,

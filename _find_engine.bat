@@ -27,6 +27,14 @@ rem ===========================================================================
 set "PYEXE="
 set "PROBE=%~dp0_jobs\_probe_python.py"
 
+rem ---------- 0) the PORTABLE build's own python (highest priority) ----------
+rem  The portable ZIP ships `_python\` next to the app folder, so from here it is
+rem  `..\_python\python.exe`.  If it is there, USE IT, period -- that is the whole
+rem  point of the portable build: do not depend on whatever the user happens to
+rem  have installed.  (Without this, a machine that has its own Python would
+rem  silently use that one instead, and "portable" would be a lie.)
+if exist "%~dp0..\_python\python.exe" call :try_python "%~dp0..\_python\python.exe"
+
 rem ---------- 1) ask config.json ----------
 rem  The JSON reading lives in _read_config_python.ps1, NOT inline here.
 rem  Inline PowerShell inside a for /f backquote needs ^| ^> escaping and
@@ -39,8 +47,15 @@ rem  config.json becomes mojibake, ConvertFrom-Json throws, the error gets
 rem  swallowed, and the launcher SILENTLY ignores the python you configured
 rem  and picks another one off PATH.  Exactly the "works, but not with what
 rem  you asked for" bug class this project exists to avoid.
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_read_config_python.ps1"`) do set "CFG_PY=%%i"
-if defined CFG_PY if exist "%CFG_PY%" call :try_python "%CFG_PY%"
+rem
+rem  ⚠ A RELATIVE path in config.json is resolved against THIS folder (%~dp0),
+rem  not against the current directory -- the portable config says
+rem  `..\_python\python.exe`, which only means anything relative to the app dir.
+if not defined PYEXE (
+  for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_read_config_python.ps1"`) do set "CFG_PY=%%i"
+  if defined CFG_PY if not exist "%CFG_PY%" if exist "%~dp0%CFG_PY%" set "CFG_PY=%~dp0%CFG_PY%"
+  if defined CFG_PY if exist "%CFG_PY%" call :try_python "%CFG_PY%"
+)
 
 rem ---------- 2) probe common locations ----------
 if not defined PYEXE (
