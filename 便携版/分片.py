@@ -35,7 +35,7 @@ import sys
 
 DEFAULT_PART_MB = 45          # 留足余量：GitHub 上限 100 MiB，一片 45MB 很安全
 MERGE_PY_NAME = "merge_parts.py"      # ⚠ 必须 ASCII —— .bat 里要**写出它的文件名**
-MERGE_BAT_NAME = "合并分片.bat"        # 这个可以有中文：没有人需要把它的名字写进 .bat
+MERGE_BAT_NAME = "merge-parts.bat"    # ⚠ 必须 ASCII：GitHub Release 的附件名只收 ASCII，中文会被降级成 default
 
 MERGE_BAT = r"""@echo off
 rem ===========================================================================
@@ -277,23 +277,25 @@ def do_split(src, part_mb):
     with open(bat, "w", encoding="ascii", newline="\r\n") as f:
         f.write(MERGE_BAT)
     # 校验和让用户能自己核
-    with open(os.path.join(out_dir, "分片说明.txt"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, "part-info.txt"), "w", encoding="utf-8") as f:
         f.write("这个压缩包被切成了 %d 片（每片约 %.0f MB），\n"
                 "因为原文件 %.1f MB，超过了部分下载渠道的单文件上限。\n\n"
                 % (n, part_mb, size / 1048576.0))
         f.write("怎么还原（不用装任何东西）：\n")
-        f.write("  1. 把所有 .001 .002 .003 … 和 合并分片.bat 放在**同一个文件夹**里\n")
-        f.write("  2. 双击 `合并分片.bat`\n")
+        f.write("  1. 把所有 .001 .002 .003 … 和 %s 放在**同一个文件夹**里\n" % MERGE_BAT_NAME)
+        f.write("  2. 双击 `%s`\n" % MERGE_BAT_NAME)
         f.write("  3. 它会合成出 %s，并打印它的 SHA256\n" % name)
         f.write("  4. 和下面的 SHA256 对一下 —— 一样就说明没坏\n")
         f.write("  5. 解压它，然后双击里面的 start-portable.bat 启动\n\n")
+        f.write("（文件名用英文：GitHub Release 的附件名只收 ASCII，\n"
+                "  中文名会被它降级成 default，反而看不出这是什么。）\n\n")
         f.write("原文件大小：%d 字节（%.1f MB）\n" % (size, size / 1048576.0))
         f.write("原文件 SHA256：%s\n" % digest)
         f.write("\n（这一步只是核对，不做也能用；但网盘下载偶有损坏，核一下最稳。）\n")
 
     print("")
     print("原文件 SHA256：%s" % digest)
-    print("校验和与说明写进了：分片说明.txt")
+    print("校验和与说明写进了：part-info.txt")
     print("合并脚本：%s（纯 ASCII，双击即可，**不需要 Python**）" % MERGE_BAT_NAME)
     return 0
 
