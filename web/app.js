@@ -500,23 +500,40 @@ function formSnapshot(b, data) {
 
 /* ---------------- 渲染：顶栏 ---------------- */
 
-function renderEnv() {
-  const e = S.state.env;
-  const cfg = S.state.config || {};
+// 顶栏那一排状态 chip。单独拎出来是为了能被前端回归直接断言（不用真跑 DOM）。
+function envChipsHtml(e, cfg) {
+  e = e || {};
+  cfg = cfg || {};
   const llm = cfg.llm || {};
   const st = cfg.llm_status || {};
+  const libs = e.libs || {};
   const chips = [];
-  chips.push(`<span class="chip ${e.python_exists ? 'ok' : 'bad'}" title="${esc(e.python)}">引擎 ${e.python_exists ? '✅' : '❌'}</span>`);
-  chips.push(`<span class="chip ${e.libs.openpyxl && e.libs.pyreadstat ? 'ok' : 'bad'}" title="读 xlsx / sav 的包（装在 workbench/libs）">导入 ${e.libs.openpyxl && e.libs.pyreadstat ? '✅' : '缺包'}</span>`);
+  chips.push(`<span class="chip ${e.python_exists ? 'ok' : 'bad'}" title="${esc(e.python || '')}">引擎 ${e.python_exists ? '✅' : '❌'}</span>`);
+  // ⚠ 判据是 **openpyxl**（读 .xlsx），不是"两个都装齐"。
+  //   原来写的是 `openpyxl && pyreadstat` → 在没装 pyreadstat 的机器上**永远显示红**，
+  //   而 pyreadstat 只影响"读 SPSS 的 .sav"这一个入口，是可选件。
+  //   把它当必要条件，用户会以为"环境缺东西不能用"，其实日常 csv/xlsx 完全没问题。
+  const xlsxOk = !!libs.openpyxl;
+  const libTip = '读 .xlsx 用的 openpyxl' + (libs.pyreadstat
+    ? '；读 SPSS .sav 的 pyreadstat 也在'
+    : '。pyreadstat（读 .sav）没装 —— 只在你直接导入 SPSS 数据文件时才需要，csv/xlsx 不受影响');
+  chips.push(`<span class="chip ${xlsxOk ? 'ok' : 'bad'}" title="${esc(libTip)}">导入 ${xlsxOk ? '✅' : '缺包'}</span>`);
   chips.push(`<span class="chip ${e.spss_exists ? 'ok' : ''}" id="spssChip"
     style="${e.spss_exists ? 'cursor:pointer' : ''}"
-    title="${esc(e.spss)}${e.spss_exists ? ' —— 点一下做个自检：看工作台能不能真的把 SPSS 跑起来' : ''}">SPSS ${e.spss_exists ? '✅' : '—'}</span>`);
+    title="${esc(e.spss || '')}${e.spss_exists ? ' —— 点一下做个自检：看工作台能不能真的把 SPSS 跑起来' : '（没装也能用；点「⚙ 设置」可以填它的路径）'}">SPSS ${e.spss_exists ? '✅' : '—'}</span>`);
   const cls = !llm.enabled ? '' : (st.ready ? 'ok' : 'bad');
   const tip = llm.enabled
-    ? ('模型：' + (st.model || '') + ' · ' + (st.ready ? '就绪' : (st.note || '没就绪')))
-    : '模型通道关着——点一下打开（会用你的 DeepSeek 额度）。关着也能用，七个组块都能跑。';
+    ? ('模型：' + (st.model || '') + ' · ' + (st.ready
+        ? '就绪（' + (st.provider === 'api' ? '自带 API' : 'DSH') + '）' : (st.note || '没就绪')))
+    : '模型通道关着（关着也能用，所有组块都能跑）。点「⚙ 设置」填 API，或点这个 chip 试着打开。';
   chips.push(`<span class="chip ${cls}" id="llmChip" style="cursor:pointer" title="${esc(tip)}">模型 ${llm.enabled ? (st.ready ? '开 ✅' : '开 ⚠') : '关'}</span>`);
-  $('#env').innerHTML = chips.join('');
+  return chips.join('');
+}
+
+function renderEnv() {
+  const e = S.state.env || {};
+  const cfg = S.state.config || {};
+  $('#env').innerHTML = envChipsHtml(e, cfg);
   const chip = $('#llmChip');
   if (chip) chip.onclick = toggleLlm;
   const sc = $('#spssChip');
@@ -600,14 +617,197 @@ async function toggleLlm() {
   const st = (S.state.config && S.state.config.llm_status) || {};
   const on = !cur.enabled;
   if (on && !st.ready) {
-    alert('模型通道还不满足条件：' + (st.note || '') +
-      '\n\n需要四样：node、DSH 的 bin.js、凭据（~/.dsh/.credentials.yaml）、dsh-home 目录。');
+    // 没就绪时**别再扔一段 alert 就完事** —— 直接把人带到能改的地方
+    alert('模型通道还没就绪：\n' + (st.note || '') +
+      '\n\n点「确定」我帮你打开设置页，在那里填接口地址 / 密钥 / 型号就行。');
+    showSettings();
     return;
   }
   const j = await post('/api/config/save', { config: { llm: { enabled: on } } });
   if (!j.ok) { alert(j.error); return; }
   setStatus(on ? '模型通道已打开（调用会消耗你的额度）' : '模型通道已关闭');
   await refreshProject();
+}
+
+/* ---------------- ⚙ 设置（可选功能：SPSS 路径 / 模型 API） ----------------
+   为什么要有这一页：这两件事原来只能改 config.json —— 而 config.json 是给人手改的
+   JSON，注释还特别多，普通用户根本不敢动。这里把它们做成能填、能选、能测的界面。 */
+
+let _settings = null;                 // 最近一次从服务端拿到的设置状态
+
+async function getSettings(force) {
+  if (_settings && !force) return _settings;
+  const j = await fetch('/api/settings?project=' + encodeURIComponent(
+    (curProject() || {}).root || '')).then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+  if (!j || !j.ok) { alert('读设置失败：' + ((j && j.error) || '服务没响应')); return null; }
+  _settings = j;
+  return j;
+}
+
+async function saveSettings(patch, quiet) {
+  setStatus('正在保存设置…');
+  const j = await post('/api/settings/save', { settings: patch });
+  if (!j.ok) { setStatus(''); alert('保存失败：\n' + (j.error || '')); return null; }
+  _settings = j.settings || null;
+  if (!quiet) setStatus('已保存：' + ((j.saved || []).join('、') || '没变化'));
+  // 顶栏那些 chip 要跟着变（SPSS ✅ / 模型开 ⚠ 之类）
+  await refreshProject();
+  return j;
+}
+
+function settingsModalHtml(st) {
+  const sp = st.spss || {};
+  const ll = st.llm || {};
+  const cands = (sp.candidates || []).filter(c => c.exists);
+  return `
+  <h3>⚙ 设置</h3>
+  <p class="setlead">这两个都是**可选功能** —— 不配也能完整跑完整个流程。
+    配置存在 <code>${esc(st.config_file || 'config.json')}</code>，
+    <b>密钥只留在你这台机器上</b>（这个文件不进 git 仓库）。</p>
+
+  <div class="setsec">
+    <div class="sethead">
+      <b>SPSS 复核</b>
+      <span class="badge ${sp.exists ? 'done' : ''}">${sp.exists ? '已找到' : '没找到'}</span>
+    </div>
+    <div class="hint">装了 SPSS 才能「顺便用 SPSS 跑一遍、把它的输出带回来」。
+      没装也不影响其它功能 —— 工作台照样生成 <code>.sps</code> 语法文件，你可以自己拿去跑。</div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" class="grow" id="setSpss" value="${esc(sp.exe || '')}"
+             placeholder="stats.exe 的完整路径，例如 D:\\SPSS\\stats.exe">
+      <button class="btn ghost2 pickbtn" id="setSpssPick" title="打开 Windows 文件选择框">📁 浏览…</button>
+      <button class="btn ghost2 pickbtn" id="setSpssAuto" title="在常见安装位置里找一遍（只看文件，不会启动 SPSS）">🔍 自动找</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button class="btn primary" id="setSpssSave">保存路径</button>
+      <span class="setmsg" id="setSpssMsg"></span>
+    </div>
+    ${cands.length ? `<details class="fnote" style="margin-top:8px"><summary>我找到 ${cands.length} 个装着 stats.exe 的位置（点开看）</summary>
+      <div class="fnote-body">${cands.map(c =>
+        `<div class="rulechk good"><code>${esc(c.exe || c.path)}</code> <span>${esc(c.kind)}</span>
+           <button class="ghost2 tiny" data-spssuse="${esc(c.exe)}">用这个</button></div>`).join('')}</div></details>` : ''}
+    ${sp.find_help ? `<details class="fnote" style="margin-top:8px"><summary>没找到？看看怎么办</summary>
+      <div class="fnote-body"><pre class="setpre">${esc(sp.find_help)}</pre></div></details>` : ''}
+  </div>
+
+  <div class="setsec">
+    <div class="sethead">
+      <b>模型建议</b>
+      <span class="badge ${ll.provider === 'api' ? 'done' : (ll.provider === 'dsh' ? 'run' : '')}">
+        ${ll.provider === 'api' ? '自带 API 就绪' : (ll.provider === 'dsh' ? 'DSH 就绪' : '两条路都没就绪')}</span>
+    </div>
+    <div class="hint">模型只做「给初稿」（提纲初稿、把大白话拆成结构化意图），
+      <b>不参与任何算术</b>。它也能完全不配：不配时界面上有「📋 复制任务书」，
+      贴到任意聊天窗口、把结果贴回来一样能用。</div>
+
+    <div class="setsub">A · 自带 API（推荐）</div>
+    <div class="field"><label>接口地址</label>
+      <input type="text" id="setLlmBase" value="${esc(ll.api_base || '')}" placeholder="${esc(ll.default_base || '')}">
+      <div class="hint">写到 <code>/v1</code> 这一层。
+        ${(ll.base_hints || []).map(h => `<a href="#" class="sethint" data-base="${esc(h.base)}">${esc(h.name)}</a>`).join(' · ')}</div>
+    </div>
+    <div class="field"><label>密钥</label>
+      <input type="text" id="setLlmKey" value="" autocomplete="off" spellcheck="false"
+             placeholder="${ll.api_key_set ? esc(ll.api_key_mask || '已设置') + ' —— 要换就填新的，不填就保持不动' : '粘贴你的 API Key'}">
+      <div class="hint">${ll.api_key_set
+        ? '已设置。这一栏<b>不回显</b>（避免密钥出现在页面里）；留空保存 = 保持原样。'
+        : '只写进本机的 config.json，不进仓库、不打印、不回显。'}</div>
+    </div>
+    <div class="field"><label>型号</label>
+      <input type="text" id="setLlmModel" value="${esc(ll.api_model || '')}" placeholder="${esc(ll.default_model || '')}"></div>
+    <div class="row">
+      <button class="btn primary" id="setLlmSave">保存</button>
+      <button class="btn" id="setLlmTest">🔌 测试连接</button>
+      <label class="check ${ll.enabled ? 'on' : ''}" id="setLlmOn"><input type="checkbox" ${ll.enabled ? 'checked' : ''}> 打开模型通道</label>
+      <span class="setmsg" id="setLlmMsg"></span>
+    </div>
+    <div class="hint" id="setLlmTestOut"></div>
+    ${ll.has_dsh ? '<div class="hint">另外：这台机器上 DSH 那条路也是通的，会自动优先用你填的 API、没有才走 DSH。</div>' : ''}
+  </div>
+
+  <div class="actions">
+    <button class="btn" onclick="closeModal()">关闭</button>
+  </div>`;
+}
+
+async function showSettings() {
+  const st = await getSettings(true);
+  if (!st) return;
+  showModal(settingsModalHtml(st));
+  bindSettings(st);
+}
+
+function bindSettings(st) {
+  const msg = (id, text, bad) => {
+    const el = $('#' + id);
+    if (el) { el.textContent = text || ''; el.className = 'setmsg' + (bad ? ' bad' : ' ok'); }
+  };
+
+  // ---- SPSS ----
+  const pickBtn = $('#setSpssPick');
+  if (pickBtn) pickBtn.onclick = async () => {
+    // ⚠ 用 pickAnyFile（绝对路径 + 不拷贝），不是 pickFileFor ——
+    //   stats.exe 是程序不是数据，拷进项目里没意义。
+    const p = await pickAnyFile('选 SPSS 的 stats.exe', ['exe']);
+    if (p) $('#setSpss').value = p;
+  };
+  const autoBtn = $('#setSpssAuto');
+  if (autoBtn) autoBtn.onclick = async () => {
+    msg('setSpssMsg', '正在常见位置里找…');
+    const j = await post('/api/spss/apply', {});
+    if (j.exe) { $('#setSpss').value = j.exe; msg('setSpssMsg', '找到了：' + j.exe); }
+    else { msg('setSpssMsg', '常见位置里没找到 —— 装的是绿色版？用「📁 浏览…」手动选。', true); }
+    _settings = null;                        // 候选列表变了，下次重开要重新取
+  };
+  $('#stage'); // no-op，保持风格一致
+  document.querySelectorAll('[data-spssuse]').forEach(el => {
+    el.onclick = () => { const i = $('#setSpss'); if (i) i.value = el.dataset.spssuse; };
+  });
+  const sSave = $('#setSpssSave');
+  if (sSave) sSave.onclick = async () => {
+    const v = ($('#setSpss') || {}).value || '';
+    msg('setSpssMsg', '正在保存…');
+    const j = await saveSettings({ spss: { exe: v } }, true);
+    if (j) msg('setSpssMsg', v ? '已保存' : '已清空（改回自动探测）');
+  };
+
+  // ---- 模型 ----
+  document.querySelectorAll('.sethint').forEach(el => {
+    el.onclick = (e) => { e.preventDefault(); const i = $('#setLlmBase'); if (i) i.value = el.dataset.base; };
+  });
+  const lSave = $('#setLlmSave');
+  if (lSave) lSave.onclick = async () => {
+    const key = (($('#setLlmKey') || {}).value || '').trim();
+    const patch = {
+      api_base: (($('#setLlmBase') || {}).value || '').trim(),
+      api_model: (($('#setLlmModel') || {}).value || '').trim(),
+    };
+    if (key) patch.api_key = key;            // ⚠ 空着就别发 —— 发了等于把密钥抹掉
+    msg('setLlmMsg', '正在保存…');
+    const j = await saveSettings({ llm: patch }, true);
+    if (j) { msg('setLlmMsg', '已保存'); $('#setLlmKey').value = ''; showSettings(); }
+  };
+  const lTest = $('#setLlmTest');
+  if (lTest) lTest.onclick = async () => {
+    msg('setLlmMsg', '正在测试（最多等 30 秒）…');
+    const out = $('#setLlmTestOut');
+    if (out) out.innerHTML = '';
+    const j = await post('/api/llm/test', {});
+    if (j.ok) {
+      msg('setLlmMsg', '连上了 ✅');
+      if (out) out.innerHTML = '模型回了：「' + esc(j.reply || '') + '」　（' + esc(j.model || '') + ' · ' + (j.seconds || '?') + ' 秒）';
+    } else {
+      msg('setLlmMsg', '没连上', true);
+      if (out) out.innerHTML = '<pre class="setpre">' + esc(j.error || '') + '</pre>';
+    }
+  };
+  const onBox = $('#setLlmOn');
+  if (onBox) onBox.onclick = async (e) => {
+    e.preventDefault();
+    const want = !onBox.classList.contains('on');
+    const j = await saveSettings({ llm: { enabled: want } }, true);
+    if (j) { onBox.classList.toggle('on', want); msg('setLlmMsg', want ? '模型通道已打开（调用会消耗你的额度）' : '模型通道已关闭'); }
+  };
 }
 
 function renderProjects() {
@@ -2993,6 +3193,19 @@ async function pickFileFor(fieldKey, label, accept) {
   return c.rel;
 }
 
+/* 选项目**外面**的一个文件，并且**保持绝对路径、不拷进项目**。
+
+   为什么要单独一个：`pickFileFor` 的语义是"给分析用的数据文件" —— 项目外的会拷进
+   `data/`（那样项目才能整体打包带走）。但设置页里选 SPSS 的 `stats.exe` 不是这个语义：
+   它是个**程序**，拷进项目里毫无意义，而且填进去的相对路径 SPSS 根本认不了。
+   ⇒ 这里走 `/api/pick` 的 `kind='anyfile'`：只回绝对路径，一个字节都不动。
+*/
+async function pickAnyFile(label, exts) {
+  const j = await pickPath('anyfile', { title: label || '选一个文件', filter: filterFor({ accept: exts }) });
+  if (!j || !j.path) return null;
+  return j.path;
+}
+
 /* 🔗 等 SPSS 把输出导出来，然后直接显示在结果里。
    为什么是「等」：这台 SPSS 没有静默批处理开关，只能在界面里跑；
    但语法末尾已经写好 OUTPUT EXPORT，跑完它自己会把 HTML 落盘，我们盯着那个文件就行。 */
@@ -4482,6 +4695,9 @@ function toggleTheme(){
 {
   const tb = $('#btnTheme');
   if (tb) tb.onclick = toggleTheme;
+  // ⚙ 设置（SPSS 路径 / 模型 API）
+  const sb = $('#btnSettings');
+  if (sb) sb.onclick = showSettings;
   initializeTheme();
 }
 
