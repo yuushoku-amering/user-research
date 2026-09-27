@@ -119,7 +119,7 @@ const wrapped = src + `
   // 主题：初值判定 / 切换 / 落下去（见 【34】）
   applyTheme, toggleTheme, initializeTheme, readSavedTheme, systemPrefersDark,
   // ⚙ 设置面板（见 【35】）：顶栏状态 chip + 设置页 HTML
-  envChipsHtml, settingsModalHtml, showSettings, saveSettings, pickAnyFile,
+  envChipsHtml, settingsModalHtml, showSettings, saveSettings, pickAnyFile, getSettings,
   // 变量表：渲染 / 提交序列化 / 单元格校验 / 加删行 / 自动读回
   varTableHtml, collectForm, varCellBad, varRowBad, varRowsOf, varRowsFilled, varTableSet,
   varTableAddRow, varTableDelRow, varTableMaybeAutoPull, varTableText, cfApply, cfReplace,
@@ -1564,6 +1564,31 @@ const tick = () => new Promise(r => setImmediate(r));
   const stReady = JSON.parse(JSON.stringify(stApi));
   stReady.llm.provider = 'api';
   ok(T4.settingsModalHtml(stReady).indexOf('自带 API 就绪') >= 0, '自带 API 就绪时也如实标出来');
+
+  console.log('\n【36】设置页：服务停了的时候，提示要是人话（不是 TypeError: Failed to fetch）');
+  // 前辈实测报过：服务被关掉之后点 ⚙，弹出来的是
+  //   「读设置失败：TypeError: Failed to fetch」—— 看着像程序坏了。
+  // 根因：这个函数当初用**裸 fetch**，绕过了 api() 里那句中文兜底。
+  // 这一组守住两件事：① 确实走 api()（中文兜底）② 它会给重试的机会
+  {
+    const oldFetch = globalThis.fetch;
+    const oldAlert = globalThis.alert;
+    const oldConfirm = globalThis.confirm;
+    let alerted = [], confirmed = 0;
+    globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+    globalThis.alert = (m) => { alerted.push(String(m)); };
+    globalThis.confirm = () => { confirmed++; return false; };   // 用户点"取消"
+
+    let got = '（没进函数）';
+    try { got = await T4.getSettings(true); } catch (e) { got = 'THREW:' + e.message; }
+    eq(got, null, '连不上时 getSettings 返回 null（而不是抛出去）');
+    ok(alerted.length === 0, '**不弹 alert**（原来就是它把 TypeError 摔到用户脸上的）');
+    eq(confirmed, 1, '而是弹一次 confirm —— 讲人话 + 给"重试"的机会');
+
+    globalThis.fetch = oldFetch;
+    globalThis.alert = oldAlert;
+    globalThis.confirm = oldConfirm;
+  }
 
   console.log('\n' + (fail === 0 ? '全部通过' : '有失败项') + '：' + pass + ' 通过 / ' + fail + ' 失败\n');
   process.exit(fail === 0 ? 0 : 1);

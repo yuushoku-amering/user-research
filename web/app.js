@@ -635,13 +635,38 @@ async function toggleLlm() {
 
 let _settings = null;                 // 最近一次从服务端拿到的设置状态
 
+/* 「连不上后端」和「后端说不行」是两回事，得分开讲。
+   ⚠ 踩过（2026-09-27 前辈实测）：服务停了之后点 ⚙，弹的是
+     `读设置失败：TypeError: Failed to fetch` —— 这话对研究者毫无意义（看着像程序坏了）。
+     根因：这里当初用了**裸 fetch**，绕过了 `api()` 里那句中文兜底
+     （「连不上本地服务」）。真实原因通常只有一个：**那个黑色命令行窗口被关了**。
+   ⇒ 统一走 `api()`，网络层失败时给出人话 + 一条能照做的出路 + 重试。 */
+function _offlineAlert(what) {
+  return confirm(
+    '连不上工作台服务（后端没在跑）。\n\n' +
+    '多半是那个**黑色命令行窗口**被关掉了 —— 关掉它就等于停了服务。\n' +
+    '重新双击 `启动工作台.bat`，然后刷新这个页面就能继续；\n' +
+    '你的数据不会丢（产物都在项目文件夹里）。\n\n' +
+    '=== 技术细节（给排查用）===\n' + what + '\n\n' +
+    '点「确定」重试一次；点「取消」先这样。');
+}
+
 async function getSettings(force) {
   if (_settings && !force) return _settings;
-  const j = await fetch('/api/settings?project=' + encodeURIComponent(
-    (curProject() || {}).root || '')).then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
-  if (!j || !j.ok) { alert('读设置失败：' + ((j && j.error) || '服务没响应')); return null; }
-  _settings = j;
-  return j;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const j = await api('/api/settings?project=' + encodeURIComponent(
+      (curProject() || {}).root || ''));
+    if (j && j.ok) { _settings = j; return j; }
+    // `api()` 在连不上时给的就是「连不上本地服务：…」—— 按这个判
+    const offline = !j || /连不上本地服务/.test(String(j.error || ''));
+    if (offline) {
+      if (!_offlineAlert((j && j.error) || '没有响应')) return null;
+      continue;                     // 用户点了重试
+    }
+    alert('读设置失败（服务端返回了错误）：\n' + ((j && j.error) || '没给原因'));
+    return null;
+  }
+  return null;
 }
 
 async function saveSettings(patch, quiet) {
