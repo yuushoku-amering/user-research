@@ -48,7 +48,7 @@ rem  swallowed, and the launcher SILENTLY ignores the python you configured
 rem  and picks another one off PATH.  Exactly the "works, but not with what
 rem  you asked for" bug class this project exists to avoid.
 rem
-rem  ⚠ A RELATIVE path in config.json is resolved against THIS folder (%~dp0),
+rem  NOTE: A RELATIVE path in config.json is resolved against THIS folder (%~dp0),
 rem  not against the current directory -- the portable config says
 rem  `..\_python\python.exe`, which only means anything relative to the app dir.
 if not defined PYEXE (

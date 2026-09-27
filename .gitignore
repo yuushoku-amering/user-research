@@ -16,6 +16,8 @@ push_log.txt
 demo_project/
 # 界面上的「最近项目」流水：里面是你的项目名字
 最近项目.json
+# 「安装依赖.bat」写出来的体检报告（本机环境相关，别人用不上）
+install-report.txt
 # 模型通道用的独立 DSH_HOME（几百 MB，且含会话记录）
 dsh-home/
 

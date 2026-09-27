@@ -275,6 +275,32 @@ def check_suites_utf8():
     return bad
 
 
+def check_bat_ascii():
+    """所有 `.bat` 必须是**纯 ASCII**（含注释、含里面写的文件名）。
+
+    ⚠ 为什么专门查这个 —— 同一个坑踩了**四次**：
+      cmd 按 **OEM 代码页**（中文 Windows 上是 GBK）解析 .bat，
+      里面的 UTF-8 中文字节会被撕成碎片、然后**当命令执行**。四次分别是：
+        1. 便携版启动器：注释里提了中文文件夹名 → 写入时 UnicodeEncodeError
+        2. 又是它：注释里写了「合并分片.bat」这个名字
+        3. 切片脚本的合并 .bat：注释里一个 `⚠`
+        4. `_find_engine.bat`：我在注释里加了个 `⚠`（这次）
+      而且**中文文件名也不能出现在 .bat 的命令行里** —— cmd 会把路径解析歪，
+      报「找不到文件」。所以脚本用到的每一处文件名都得是 ASCII。
+
+    ⇒ 别再手工检查了（已经查了四遍），交给自检。
+    """
+    import glob
+    bad = []
+    for f in sorted(glob.glob(os.path.join(HERE, "*.bat"))):
+        raw = open(f, "rb").read()
+        pos = next((i for i, b in enumerate(raw) if b > 127), None)
+        if pos is not None:
+            line = raw[:pos].count(b"\n") + 1
+            bad.append("%s 第 %d 行" % (os.path.basename(f), line))
+    return bad
+
+
 def main():
     os.makedirs(JOBS, exist_ok=True)
     want = sys.argv[1:]
@@ -296,6 +322,16 @@ def main():
               " encoding='utf-8', errors='replace')")
         return 1
     print("[OK ] 测试脚本：打印符号的都做了 UTF-8 包装")
+
+    badbat = check_bat_ascii()
+    if badbat:
+        print("!! 这些 .bat 里有非 ASCII 字符（cmd 按 GBK 解析，会被撕碎当命令执行）：")
+        for x in badbat:
+            print("   - %s" % x)
+        print("   修法：把中文挪进 .py 或 .txt 里，.bat 只留 ASCII，"
+              "连注释也算（这个坑踩了四次）")
+        return 1
+    print("[OK ] .bat 文件：全部纯 ASCII")
 
     chunks, ok_all = [], True
     for i, (bid, name, params) in enumerate(CASES, 1):

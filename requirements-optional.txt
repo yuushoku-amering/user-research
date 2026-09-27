@@ -1,0 +1,14 @@
+# 岚苔 Vesper · 用户研究工作台 —— 可选依赖
+#
+# 装了只是多一两个入口，**不装完全不影响主流程**。装法：
+#     python -m pip install -r requirements-optional.txt
+#
+# 或者：先双击 `安装依赖.bat` 装好必需的，再跑上面这条。
+
+# 读 SPSS 的 .sav 数据文件（survey 数据是 .sav 时才需要）。
+# 不装的替代办法：在 SPSS 里「另存为 → CSV」再导入，一样能用。
+pyreadstat>=1.2
+
+# 用它给「自己写的逻辑回归」做交叉对拍（_regresstest.py 里那条断言）。
+# 不装的话那一套测试会提示"本该是必跑项"然后跳过，不算失败。
+scikit-learn>=1.0

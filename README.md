@@ -21,9 +21,9 @@
 
 | | **便携版**（推荐给大多数人） | **源码版** |
 |---|---|---|
-| **要装 Python 吗** | **不用** —— 包里自带 Python 和全部依赖 | 要（Python 3.8+ 和五个库） |
+| **要装 Python 吗** | **不用** —— 包里自带 Python 和全部依赖 | 要（Python 3.11/3.12；`安装依赖.bat` 会装好库） |
 | 多大 | 约 122 MB | 约 3 MB |
-| 拿到就能用吗 | 解压 → 双击 `start-portable.bat` | 先装依赖、复制 config，再双击 `启动工作台.bat` |
+| 拿到就能用吗 | 解压 → 双击 `start-portable.bat` | 双击 `安装依赖.bat` → 双击 `启动工作台.bat`（两步） |
 | **从哪下** | **👉 [下载页 Releases](https://github.com/yuushoku-amering/user-research/releases/latest)** | **👉 本页右上绿色 `Code` → `Download ZIP`** |
 
 ### 便携版怎么装（3 步）
@@ -85,12 +85,27 @@ cd user-research
 
 | | |
 |---|---|
-| **0. 装 Python 3** | 需要一个能 `import pandas, scipy, matplotlib` 的 Python 3。装法：`pip install pandas scipy matplotlib openpyxl`。装完双击启动脚本时会自动找到它，找不到会告诉你怎么办 |
-| **1. 复制配置** | 把 `config.example.json` 改名成 `config.json`（每一项都能留空，留空走自动探测） |
+| **0. 装 Python 3** | 去 [python.org](https://www.python.org/downloads/) 装 **Python 3.11 或 3.12**（安装时**勾上 `Add python.exe to PATH`**）。版本别太新 —— 太新可能还没有现成的 wheel，pip 会想现场编译然后失败 |
+| **1. 装依赖（一条命令）** | **双击 `安装依赖.bat`** ← 它会自己找 Python、装 `requirements.txt` 里的东西、装完还真的 import 一遍给你看。也可以手敲：`python -m pip install -r requirements.txt` |
 | **2. 双击 `启动工作台.bat`** | 浏览器自动打开 `http://127.0.0.1:8765`（Windows 上就是双击；Mac/Linux 见文末） |
 | **3. 建项目 → 点组块 → 跑** | 顶栏「新建」一个项目，左边点组块，填参数，点「▶ 用 Python 跑」 |
 
 **关掉那个黑色命令行窗口 = 停服务。**
+
+> **`安装依赖.bat` 是干什么的**：它把"装依赖"这步变成一次双击 ——
+> 自动找 Python → 按 `requirements.txt` 装 → **真的 import 一遍**验证 →
+> 把结果写成 `install-report.txt`（UTF-8，控制台乱码也能看）。
+> 失败了会告诉你常见原因（多半是 Python 版本太新、没有 wheel）。
+>
+> 想装可选的（读 SPSS `.sav` 的 pyreadstat、跟 sklearn 对拍用的），
+> 跑 `python -m pip install -r requirements-optional.txt`，或
+> `安装依赖.bat --optional`。
+>
+> **不想装 Python？** 那就用上面的**便携版** —— 它是同一个程序，只是把 Python 一起打包了。
+
+**`config.json` 不用手动建** —— 不存在也能跑（走自动探测）。
+想改端口、指定自己的 Python，再把 `config.example.json` 复制成 `config.json` 改。
+界面右上角 **⚙ 设置**也能改这些东西（SPSS 路径、模型 API）。
 
 ---
 
